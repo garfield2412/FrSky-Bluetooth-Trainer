@@ -6,10 +6,12 @@ import runpy
 import subprocess
 import sys
 import zipfile
+from PIL import _plugins
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--version", default="0.1.0")
+parser.add_argument("--output-dir", type=Path, help="Override the release output directory.")
 args = parser.parse_args()
 if not all(part.isdigit() for part in args.version.split(".")) or len(args.version.split(".")) != 3:
     parser.error("Use a version such as 0.1.0")
@@ -17,6 +19,7 @@ if sys.platform != "win32" or platform.architecture()[0] != "64bit":
     parser.error("Build on Windows with 64-bit Python")
 root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root))
+output_dir = args.output_dir.resolve() if args.output_dir else root / "dist"
 build = root / "build"
 build.mkdir(exist_ok=True)
 app = runpy.run_path(str(root / "FrSkyApp.pyw"))
@@ -25,10 +28,18 @@ command = [
     sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
     "--onefile", "--windowed", "--name", "FrSky Bluetooth Trainer",
     "--icon", str(build / "app.ico"), "--specpath", str(build),
-    "--distpath", str(root / "dist"), "--workpath", str(build / "pyinstaller"),
+    "--distpath", str(output_dir), "--workpath", str(build / "pyinstaller"),
     "--hidden-import", "pystray._win32", "--collect-submodules", "winrt",
     "--collect-all", "bleak", "--exclude-module", "numpy",
 ]
+# The application uses PNG logos and Windows ICO/BMP icons.
+required_plugins = {"PngImagePlugin", "IcoImagePlugin", "BmpImagePlugin"}
+excluded_modules = [
+    *(f"PIL.{plugin}" for plugin in _plugins if plugin not in required_plugins),
+    "PIL._avif", "PIL._webp", "PIL._imagingcms", "PIL._imagingft",
+]
+for module in excluded_modules:
+    command.extend(("--exclude-module", module))
 for resource in ("languages.json", "frsky-logo.png", "ethos-logo.png"):
     command.extend(("--add-data", f"{root / resource}:."))
 # Recent Windows Python builds ship Tcl/Tk scripts in ZIP archives.
@@ -51,9 +62,9 @@ for prefix, folder, destination in (
         command.extend(("--add-data", f"{resource_dir}:{destination}"))
 command.append(str(root / "FrSkyApp.pyw"))
 subprocess.run(command, cwd=root, check=True)
-exe = root / "dist" / "FrSky Bluetooth Trainer.exe"
+exe = output_dir / "FrSky Bluetooth Trainer.exe"
 subprocess.run([str(exe), "--smoke-test"], check=True, timeout=60)
-archive = root / "dist" / f"FrSky-Bluetooth-Trainer-v{args.version}-Windows-x64.zip"
+archive = output_dir / f"FrSky-Bluetooth-Trainer-v{args.version}-Windows-x64.zip"
 with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
     output.write(exe, exe.name)
     output.write(root / "README.md", "README.md")

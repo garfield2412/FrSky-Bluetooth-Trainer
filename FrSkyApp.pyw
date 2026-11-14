@@ -1704,6 +1704,17 @@ if __name__ == "__main__":
         for filename in ("frsky-logo.png", "ethos-logo.png"):
             with Image.open(Path(__file__).with_name(filename)) as image:
                 ImageTk.PhotoImage(image, master=root)
+        from io import BytesIO
+
+        for state in ("Getrennt", "Verbindung wird hergestellt", "Verbunden"):
+            icon = Application.draw_tray_icon(state)
+            ImageTk.PhotoImage(icon, master=root)
+            for image_format in ("ICO", "BMP"):
+                stream = BytesIO()
+                icon.save(stream, format=image_format)
+                stream.seek(0)
+                with Image.open(stream) as decoded:
+                    decoded.load()
         assert {"de", "en", "fr"} <= LANGUAGE_CATALOG.keys()
         root.destroy()
         sys.exit(0)

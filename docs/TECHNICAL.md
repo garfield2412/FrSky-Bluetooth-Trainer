@@ -64,7 +64,7 @@ For hardware verification, fully exit the GUI before running the console against
 
 ## Release build
 
-Install requirements-build.txt on Windows x64 with Python 3.14. Run `python scripts/build_release.py --version 0.1.0`. PyInstaller creates a windowed single-file EXE with logos and translations, extracts Tcl/Tk resource ZIPs when supplied by the Python installation, runs the EXE resource/Tk smoke test, then packages it with the README and creates a SHA-256 checksum. User settings are excluded.
+Install requirements-build.txt on Windows x64 with Python 3.14. Run `python scripts/build_release.py --version 0.1.0`. PyInstaller creates a windowed single-file EXE with logos and translations, extracts Tcl/Tk resource ZIPs when supplied by the Python installation, runs the EXE resource/Tk smoke test, then packages it with the README and creates a SHA-256 checksum. Use --output-dir to build beside a running copy without replacing it. User settings are excluded. The build retains Pillow PNG, ICO and BMP plugins for logos and Windows icons. Unused image plugins, AVIF/WebP codecs, color management and FreeType extensions are excluded. The frozen smoke test loads both logos and renders all three tray states, including ICO/BMP encoding and decoding.
 
 The Windows release workflow runs on version tags or manual dispatch for an existing tag. It builds the archive and checksum on Windows and creates a draft prerelease. Review docs/RELEASE_NOTES.md and complete hardware and clean-Windows verification before publishing. The frozen autostart command uses sys.executable. The single-instance mutex is shared with source launches.
 
