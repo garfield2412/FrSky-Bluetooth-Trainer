@@ -31,6 +31,24 @@ command = [
 ]
 for resource in ("languages.json", "frsky-logo.png", "ethos-logo.png"):
     command.extend(("--add-data", f"{root / resource}:."))
+# Recent Windows Python builds ship Tcl/Tk scripts in ZIP archives.
+# Extract their resources when the standard PyInstaller hook cannot find them.
+for prefix, folder, destination in (
+    ("libtcl", "tcl_library", "_tcl_data"),
+    ("libtk", "tk_library", "_tk_data"),
+):
+    archives = list((Path(sys.base_prefix) / "tcl").glob(f"{prefix}*.zip"))
+    if archives:
+        resource_dir = build / destination
+        with zipfile.ZipFile(archives[0]) as archive:
+            for member in archive.infolist():
+                relative = Path(member.filename).relative_to(folder)
+                if ".." in relative.parts or member.is_dir():
+                    continue
+                target = resource_dir / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(member))
+        command.extend(("--add-data", f"{resource_dir}:{destination}"))
 command.append(str(root / "FrSkyApp.pyw"))
 subprocess.run(command, cwd=root, check=True)
 exe = root / "dist" / "FrSky Bluetooth Trainer.exe"
