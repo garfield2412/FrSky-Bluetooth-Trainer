@@ -67,3 +67,7 @@ For hardware verification, fully exit the GUI before running the console against
 Install requirements-build.txt on Windows x64 with Python 3.14. Run `python scripts/build_release.py --version 0.1.0`. PyInstaller creates a windowed single-file EXE with logos and translations, extracts Tcl/Tk resource ZIPs when supplied by the Python installation, runs the EXE resource/Tk smoke test, then packages it with the README and creates a SHA-256 checksum. User settings are excluded.
 
 The Windows release workflow runs on version tags or manual dispatch for an existing tag. It builds the archive and checksum on Windows and creates a draft prerelease. Review docs/RELEASE_NOTES.md and complete hardware and clean-Windows verification before publishing. The frozen autostart command uses sys.executable. The single-instance mutex is shared with source launches.
+
+## README screenshots
+
+Images in docs/images show the English GUI with isolated example transmitter data. They illustrate the main window and channel mapping dialog. Refresh these captures when the corresponding layout changes.
