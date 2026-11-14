@@ -1,5 +1,7 @@
 import asyncio
 import ctypes
+import hashlib
+import time
 import json
 import queue
 import sys
@@ -11,183 +13,45 @@ import winreg
 import xml.etree.ElementTree as ET
 from functools import partial
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, font, messagebox, ttk
 
 from test_frsky_ble import CHARACTERISTIC, SERVICE, BleakClient, BleakError, BleakScanner, TrainerDecoder
-from vjoy_output import VJoyOutput, VJoyUnavailable
+from vjoy_output import BUTTON_HIGH, BUTTON_LOW, BUTTON_MODES, VJoyOutput, VJoyUnavailable, button_pressed
 
 SETTINGS = Path(__file__).with_name("config.xml")
 LEGACY_SETTINGS = SETTINGS.with_name("transmitter-list.json")
 DEFAULT = list(range(1, 9))
 FRSKY_BLACK = "#222222"
 FRSKY_YELLOW = "#f5c438"
+LIVE_SURFACE = "#fffefa"
+LIVE_BORDER = "#d0cbc0"
+LIVE_VALUE = "#674d08"
 
 sys.path.insert(0, str(Path(__file__).with_name("tray-libs")))
 import pystray
 from PIL import Image, ImageDraw, ImageTk
 
 
-ENGLISH = {'Sprache': 'Language',
- 'Systemsprache': 'System language',
- 'Sender': 'Transmitter',
- 'Verbinden': 'Connect',
- 'Trennen': 'Disconnect',
- 'Sender suchen': 'Find transmitters',
- 'Kanäle zuordnen': 'Map channels',
- 'Beenden': 'Exit',
- 'Getrennt': 'Disconnected',
- 'Bluetooth-Details': 'Bluetooth details',
- 'Live-Anzeige': 'Live channels',
- 'Senderprofil konnte nicht gespeichert werden': 'Could not save transmitter profile',
- 'Starte Verbindung …': 'Starting connection …',
- 'Trenne Bluetooth …': 'Disconnecting Bluetooth …',
- 'Suche FrSky-Sender · Trainer → Bluetooth → Slave …': 'Looking for FrSky transmitters · Trainer → Bluetooth '
-                                                       '→ Slave …',
- 'vJoy-Achse': 'vJoy axis',
- 'Senderkanal': 'Transmitter channel',
- 'Mehrfach zugeordnet: {channels}': 'Assigned more than once: {channels}',
- 'Standard': 'Reset to defaults',
- 'Übernehmen': 'Apply',
- 'Abbrechen': 'Cancel',
- 'Noch keine Bluetooth-Messwerte.': 'No Bluetooth measurements yet.',
- 'Getrennt. Klicke auf Verbinden, um erneut zu starten.': 'Disconnected. Click Connect to start again.',
- '{count} mögliche Sender gefunden. Auswählen und verbinden.': 'Found {count} possible transmitters. Select '
-                                                               'one and click Connect.',
- 'Kein FrSky-Sender gefunden. Prüfe den Schülermodus.': 'No FrSky transmitter found. Check that trainer '
-                                                        'slave mode is enabled.',
- 'Trenne Bluetooth und gebe vJoy frei …': 'Disconnecting Bluetooth and releasing vJoy …',
- 'Fehler: {error}': 'Error: {error}',
- 'Suche Sender per Bluetooth …': 'Looking for the transmitter over Bluetooth …',
- 'Sender gefunden. Öffne den Trainerdienst …': 'Transmitter found. Opening the trainer service …',
- 'Bluetooth verbunden. Warte auf Steuerdaten …': 'Bluetooth connected. Waiting for channel data …',
- 'Bereit · Steuerdaten werden an vJoy übertragen.': 'Ready · Sending channel data to vJoy.',
- 'Sender noch nicht gefunden.': 'Transmitter not found yet.',
- 'Trainerdienst noch nicht erreichbar.': 'Trainer service not reachable yet.',
- 'Warte auf gültige Steuerdaten.': 'Waiting for valid channel data.',
- 'Bluetooth-Verbindung unterbrochen.': 'Bluetooth connection interrupted.',
- '{reason} Automatischer Versuch {attempt} in {delay} s.{hint}': '{reason} Retrying automatically in {delay} '
-                                                                 's (attempt {attempt}).{hint}',
- ' Prüfe den Bluetooth-Schülermodus.': ' Check that Bluetooth trainer slave mode is enabled.',
- 'Sender nach {seconds:.1f} s gefunden.': 'Transmitter found after {seconds:.1f} s.',
- 'Trainerdienst nach {seconds:.1f} s geöffnet.': 'Trainer service opened after {seconds:.1f} s.',
- 'Erste Steuerdaten nach {seconds:.1f} s an vJoy übergeben.': 'First channel data sent to vJoy after '
-                                                              '{seconds:.1f} s.',
- '{phase}: {error}': '{phase}: {error}',
- 'Sendersuche': 'Transmitter discovery',
- 'Trainerdienst': 'Trainer service',
- 'Steuerdaten': 'Channel data',
- 'Laufende Verbindung': 'Active connection',
- 'Sender nicht gefunden.': 'Transmitter not found.',
- 'Keine gültigen Trainerdaten.': 'No valid trainer data.',
- 'Bluetooth getrennt.': 'Bluetooth disconnected.',
- 'Unbekannter Sender': 'Unknown transmitter',
- 'vJoy-Gerät 1 ist möglicherweise belegt. Beende das alte Bluetooth-Skript mit Strg+X und klicke auf Verbinden.': 'vJoy '
-                                                                                                                  'device '
-                                                                                                                  '1 '
-                                                                                                                  'may '
-                                                                                                                  'be '
-                                                                                                                  'in '
-                                                                                                                  'use. '
-                                                                                                                  'Stop '
-                                                                                                                  'the '
-                                                                                                                  'console '
-                                                                                                                  'script '
-                                                                                                                  'with '
-                                                                                                                  'Ctrl+X '
-                                                                                                                  'and '
-                                                                                                                  'click '
-                                                                                                                  'Connect.',
- 'vJoy hat die Achsenposition abgelehnt.': 'vJoy rejected the axis position.'}
-
-ENGLISH.update({
-    "Startdateien": "Launch files", "Simulator": "Simulator", "Starten": "Launch", "Hinzufügen": "Add",
-    "Bearbeiten": "Edit", "Entfernen": "Remove", "Simulator wählen": "Select simulator",
-    "Programmdatei": "Executable", "Name": "Name", "Durchsuchen": "Browse",
-    "Gib einen Namen und eine vorhandene Startdatei an (.exe, .bat, .cmd oder .lnk).": "Enter a name and select an existing launch file (.exe, .bat, .cmd or .lnk).",
-    "Simulator konnte nicht gestartet werden": "Could not launch simulator",
-    "Simulator entfernen?": "Remove simulator?",
-    "„{name}“ aus der Liste entfernen?": "Remove “{name}” from the list?",
-})
-
 SIMULATOR_TYPES = (".exe", ".bat", ".cmd", ".lnk")
 
-ENGLISH.update({
-    "Fenster öffnen": "Open window",
-    "In den Infobereich": "Hide to tray",
-    "Start im Infobereich": "Start in notification area",
-    "Mit Windows starten": "Start with Windows",
-    "Windows-Autostart konnte nicht geändert werden": "Could not change Windows startup",
-    "Bereit": "Ready",
-    "Verbindung wird aufgebaut": "Connecting or reconnecting",
-    "Achse wählen und einen Geber bewegen.": "Select an axis and move one control.",
-    "Warte auf Daten vom ausgewählten Sender.": "Waiting for data from the selected transmitter.",
-    "Erkannten Kanal übernehmen": "Use detected channel",
-})
 
-ENGLISH.update({
-    "Sender entfernen": "Remove transmitter",
-    "„{name}“ und seine Kanalzuordnung aus der Senderliste entfernen?":
-        "Remove “{name}” and its channel mapping from the transmitter list?",
-})
+LANGUAGE_CATALOG = json.loads(Path(__file__).with_name("languages.json").read_text(encoding="utf-8"))
+LANGUAGES = ("system", *LANGUAGE_CATALOG)
+AXIS_DESCRIPTIONS = {'X': 'X-Achse', 'Y': 'Y-Achse', 'Z': 'Z-Achse', 'Rx': 'Drehung um X', 'Ry': 'Drehung um Y', 'Rz': 'Drehung um Z', 'Slider': 'Schieberegler', 'Dial': 'Drehregler'}
 
 VJOY_DOWNLOAD = "https://github.com/BrunnerInnovation/vJoy/releases/tag/v2.2.2.0"
 VJOY_TITLE = "vJoy fehlt oder ist nicht aktiv"
 VJOY_PROMPT = ("Lade vJoy herunter und installiere es. Wenn es bereits installiert ist, "
                "aktiviere oder repariere den Treiber. Klicke danach erneut auf Verbinden.\n\nDownloadseite öffnen?")
-ENGLISH.update({
-    VJOY_TITLE: "vJoy is missing or inactive",
-    VJOY_PROMPT: "Download and install vJoy. If it is already installed, enable or repair the driver. "
-                 "Then click Connect again.\n\nOpen the download page?",
-})
 
-ENGLISH.update({
-    "Sender wechseln": "Switch transmitter",
-    "Simulator starten": "Launch simulator",
-    "Simulator starten, sobald die Steuerung bereit ist": "Launch simulator when controls are ready",
-    "Auch bei Windows-Anmeldung": "Also at Windows sign-in",
-    "Trainerdienst erneut öffnen …": "Retrying the trainer service …",
-})
 
 PROJECT_URL = "https://github.com/garfield2412/FrSky-Bluetooth-Trainer"
 TRAINER_MANUAL = "https://ethos-doc.frsky-rc.com/model-setup/trainer/#bluetooth"
 
-ENGLISH.update({
-    "Hilfe": "Help",
-    "Projekt auf GitHub": "Project on GitHub",
-    "Unabhängiges Community-Projekt. Quellcode und Fehlermeldungen findest du auf GitHub.":
-        "Independent community project. Find the source code and report issues on GitHub.",
-    "So funktioniert es": "How it works",
-    "vJoy installieren": "Install vJoy",
-    "vJoy auf GitHub": "vJoy on GitHub",
-    "Sender vorbereiten": "Set up the transmitter",
-    "Am PC verbinden": "Connect on your PC",
-    "Simulator einrichten": "Set up the simulator",
-    "ETHOS-Handbuch: Bluetooth-Trainer": "ETHOS manual: Bluetooth trainer",
-    "Schließen": "Close",
-})
 
-HELP_STEPS = {
-    "de": (
-        "Mit dieser App steuerst du deinen Flugsimulator kabellos mit deiner FrSky-Funke. vJoy stellt dafür in Windows einen virtuellen Joystick bereit.",
-        "Öffne „vJoy auf GitHub“. Lade unter „Assets“ den Windows-Installer herunter und führe ihn aus. Öffne danach „Configure vJoy“, wähle Gerät 1 und aktiviere X, Y, Z, Rx, Ry, Rz, Slider und Dial. Klicke auf „Apply“. Mit Win+R → joy.cpl kannst du prüfen, ob „vJoy Device“ erscheint.",
-        "1. Öffne auf der Funke Modell → Trainer und tippe auf +.\n"
-        "2. Wähle Bluetooth und aktiviere die Verbindung.\n"
-        "3. Wähle als Trainer-Modus Slave (Schüler) und als Kanalbereich CH1–CH8.",
-        "Schalte Bluetooth in Windows ein. Klicke in der App auf „Sender suchen“, wähle deine Funke und klicke auf „Verbinden“. Sobald „Bereit“ erscheint, kannst du loslegen.",
-        "Öffne die „Live-Anzeige“ und bewege einen Knüppel. Bewegt sich ein Balken mit, kommen die Daten an. Wähle im Simulator „vJoy Device“ als Steuerung und folge der Kalibrierung im Simulator.",
-    ),
-    "en": (
-        "This app lets you fly your simulator wirelessly with your FrSky radio. vJoy provides a virtual joystick in Windows for the simulator to use.",
-        "Click “vJoy on GitHub”. Under “Assets”, download and run the Windows installer. Open “Configure vJoy”, select device 1, and enable X, Y, Z, Rx, Ry, Rz, Slider and Dial. Click “Apply”. Press Win+R and enter joy.cpl to check that “vJoy Device” appears.",
-        "1. On your radio, open Model → Trainer and tap +.\n"
-        "2. Select Bluetooth and enable the link.\n"
-        "3. Set Trainer mode to Slave (student) and Channel range to CH1–CH8.",
-        "Turn on Bluetooth in Windows. In the app, click “Find transmitters”, select your radio and click “Connect”. Wait for “Ready”.",
-        "Open “Live channels” and move a stick. If a bar moves with it, the app is receiving data. Select “vJoy Device” as your controller and follow the calibration steps in your simulator.",
-    ),
-}
-
-LANGUAGES = ("system", "de", "en")
+CONTROLS_TIMEOUT = 0.5
+RECONNECT_TIMEOUT = 5
+READY_STATUS = "Bereit · Steuerdaten werden an vJoy übertragen."
 
 
 AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -227,16 +91,61 @@ def message(text, **fields):
 
 def translate(value, language):
     text, fields = value if isinstance(value, tuple) else (value, {})
-    if language == "en":
-        text = ENGLISH.get(text, text)
+    translations = LANGUAGE_CATALOG.get(language, LANGUAGE_CATALOG["en"])["messages"]
+    text = translations.get(text, LANGUAGE_CATALOG["en"]["messages"].get(text, text) if language != "de" else text)
     return text.format(**{key: translate(item, language) if isinstance(item, tuple) else item
                           for key, item in fields.items()}) if fields else text
+
+
+def decode_button(token):
+    if token.endswith("m"):
+        return int(token[:-1]), "middle"
+    value = int(token)
+    return (abs(value), value >= 0)
+
+
+def encode_button(channel, mode):
+    if not channel:
+        return "0"
+    if mode == "middle":
+        return f"{channel}m"
+    return str(channel if mode else -channel)
+
+
+def read_mapping(node):
+    channels = [int(channel) for channel in node.attrib["channels"].split()]
+    buttons = [decode_button(token) for token in node.get("buttons", "").split()]
+    if (len(channels) != 8 or len(set(channels)) != 8 or any(not 1 <= channel <= 16 for channel in channels)
+            or len(buttons) > 8 or any(not 0 <= channel <= 16 for channel, _ in buttons)):
+        raise ValueError("Invalid channel or button assignment")
+    return channels, buttons
+
+
+def import_mapping(path):
+    node = ET.parse(path).getroot()
+    if node.tag != "frsky-mapping" or node.get("version") != "1":
+        raise ValueError("Invalid mapping format")
+    return read_mapping(node)
+
+
+def mapping_attributes(channels, buttons):
+    return {
+        "channels": " ".join(map(str, channels)),
+        "buttons": " ".join(encode_button(channel, mode) for channel, mode in buttons),
+    }
 
 
 def load_settings(path):
     root = ET.parse(path).getroot()
     if root.tag != "config":
         raise ValueError("Invalid configuration root")
+    senders = {}
+    for node in root.findall("./transmitters/transmitter"):
+        try:
+            channels, buttons = read_mapping(node)
+        except (KeyError, ValueError):
+            channels, buttons = DEFAULT.copy(), []
+        senders[node.attrib["address"]] = {"name": node.attrib["name"], "channels": channels, "buttons": buttons}
     return {
         "language": root.get("language", "system"),
         "last": root.get("last-transmitter", ""),
@@ -244,13 +153,7 @@ def load_settings(path):
         "start_in_tray": root.get("start-in-tray", "false") == "true",
         "auto_launch": root.get("auto-launch", "false") == "true",
         "auto_launch_at_login": root.get("auto-launch-at-login", "false") == "true",
-        "senders": {
-            node.attrib["address"]: {
-                "name": node.attrib["name"],
-                "channels": [int(channel) for channel in node.attrib["channels"].split()],
-            }
-            for node in root.findall("./transmitters/transmitter")
-        },
+        "senders": senders,
         "simulators": [dict(node.attrib) for node in root.findall("./simulators/simulator")],
     }
 
@@ -269,7 +172,7 @@ def save_settings(path, settings):
         ET.SubElement(transmitters, "transmitter", {
             "address": address,
             "name": profile["name"],
-            "channels": " ".join(map(str, profile["channels"])),
+            **mapping_attributes(profile["channels"], profile.get("buttons", [])),
         })
     simulators = ET.SubElement(root, "simulators")
     for entry in settings.get("simulators", []):
@@ -331,13 +234,23 @@ class BluetoothWorker:
                 candidates[device.address] = {"name": name, "channels": DEFAULT.copy()}
         self.events.put(("devices", candidates))
 
-    async def connect(self, address, channels):
+    async def connect(self, address, channels, buttons=()):
         try:
-            output = VJoyOutput(channels)
+            output = VJoyOutput(channels, buttons=buttons)
         except RuntimeError as error:
             if "konnte nicht geöffnet werden" in str(error):
                 raise RuntimeError("vJoy-Gerät 1 ist möglicherweise belegt. Beende das alte Bluetooth-Skript mit Strg+X und klicke auf Verbinden.") from error
             raise
+        highest_channel = max(*channels, *(channel for channel, _ in buttons))
+        def clean_output(action):
+            active_error = sys.exception()
+            try:
+                action()
+            except (OSError, RuntimeError) as error:
+                if active_error is None:
+                    raise
+                active_error.add_note(str(error))
+
         failures = 0
         service_retry = False
         device = None
@@ -370,36 +283,64 @@ class BluetoothWorker:
                         self.events.put(("progress", "Bluetooth verbunden. Warte auf Steuerdaten …"))
                         phase = "Steuerdaten"
                         started = self.loop.time()
-                        decoder = TrainerDecoder()
+                        decoder = TrainerDecoder(extended=True)
                         latest = None
+                        positions = button_states = []
+                        packet_count = 0
+                        first_packet = previous_packet = None
+                        latest_interval = longest_interval = 0.0
+                        next_quality_update = 0.0
                         last_packet = self.loop.time()
+                        self.events.put(("quality", None))
+                        self.events.put(("neutralized", False))
                         display_timer = None
                         write_error = None
+                        neutralized = False
 
                         def refresh_display():
                             nonlocal display_timer
                             display_timer = None
                             if not disconnected.is_set():
                                 self.events.put(("raw_channels", (address, latest)))
-                                self.events.put(("values", [latest[i - 1] for i in channels]))
+                                self.events.put(("values", latest))
+                                self.events.put(("button_states", button_states))
+                                self.events.put(("vjoy_output", positions))
 
                         def on_packet(_, data):
-                            nonlocal latest, last_packet, display_timer, write_error, failures, phase
+                            nonlocal latest, last_packet, display_timer, write_error, failures, phase, positions, button_states, neutralized
+                            nonlocal packet_count, first_packet, previous_packet, latest_interval, longest_interval, next_quality_update
                             if disconnected.is_set():
                                 return
                             for values in decoder.feed(data):
                                 last_packet = self.loop.time()
+                                packet_count += 1
+                                if previous_packet is None:
+                                    first_packet = last_packet
+                                else:
+                                    latest_interval = last_packet - previous_packet
+                                    longest_interval = max(longest_interval, latest_interval)
+                                previous_packet = last_packet
+                                if last_packet >= next_quality_update or neutralized or packet_count == 2:
+                                    mean = (last_packet - first_packet) / max(1, packet_count - 1)
+                                    self.events.put(("quality", (packet_count, latest_interval, mean, longest_interval,
+                                                                 time.monotonic())))
+                                    next_quality_update = last_packet + 0.25
                                 if values == latest:
                                     continue
                                 try:
-                                    output.write(values)
+                                    if highest_channel > len(values):
+                                        raise RuntimeError("Die Kanalzuordnung benötigt einen Sender mit 16 Trainerkanälen.")
+                                    positions, button_states = output.write(values)
                                 except (OSError, RuntimeError) as error:
                                     write_error = error
+                                    self.events.put(("vjoy_error", str(error)))
                                     disconnected.set()
                                     return
                                 if latest is None:
                                     self.events.put(("diagnostic", message("Erste Steuerdaten nach {seconds:.1f} s an vJoy übergeben.", seconds=self.loop.time() - started)))
-                                    self.events.put(("status", "Bereit · Steuerdaten werden an vJoy übertragen."))
+                                    self.events.put(("status", READY_STATUS))
+                                    neutralized = False
+                                    self.events.put(("neutralized", False))
                                     self.events.put(("ready", address))
                                     phase = "Laufende Verbindung"
                                     failures = 0
@@ -410,9 +351,30 @@ class BluetoothWorker:
                         try:
                             await client.start_notify(CHARACTERISTIC, on_packet)
                             while not disconnected.is_set():
-                                remaining = 5 - (self.loop.time() - last_packet)
+                                elapsed = self.loop.time() - last_packet
+                                remaining = RECONNECT_TIMEOUT - elapsed
                                 if remaining <= 0:
                                     raise TimeoutError("Keine gültigen Trainerdaten.")
+                                if latest is not None and not neutralized:
+                                    until_reset = CONTROLS_TIMEOUT - elapsed
+                                    if until_reset <= 0:
+                                        try:
+                                            output.center()
+                                        except (OSError, RuntimeError) as error:
+                                            self.events.put(("vjoy_error", str(error)))
+                                            raise RuntimeError("vJoy konnte nicht zurückgesetzt werden") from error
+                                        self.events.put(("neutralized", True))
+                                        latest = None
+                                        neutralized = True
+                                        if display_timer is not None:
+                                            display_timer.cancel()
+                                            display_timer = None
+                                        self.events.put(("values", None))
+                                        self.events.put(("progress", "Keine Steuerdaten. vJoy ist neutralisiert. Warte auf den Sender …"))
+                                    else:
+                                        remaining = min(remaining, until_reset)
+                                # A resumed stream can arm a new deadline while this coroutine waits.
+                                remaining = min(remaining, CONTROLS_TIMEOUT)
                                 try:
                                     await asyncio.wait_for(disconnected.wait(), timeout=remaining)
                                 except TimeoutError:
@@ -423,11 +385,14 @@ class BluetoothWorker:
                             disconnected.set()
                             if display_timer is not None:
                                 display_timer.cancel()
+                            try:
+                                clean_output(output.center)
+                            finally:
+                                self.events.put(("values", None))
                         raise ConnectionError("Bluetooth getrennt.")
                 except (ConnectionError, TimeoutError, OSError, BleakError) as error:
                     self.events.put(("connection", None))
-                    output.center()
-                    self.events.put(("values", None))
+                    self.events.put(("failure", (phase, type(error).__name__)))
                     failures += 1
                     # Try the discovered device once more before starting another scan.
                     service_retry = phase == "Trainerdienst" and not service_retry and device is not None
@@ -447,7 +412,7 @@ class BluetoothWorker:
                     await asyncio.sleep(delay)
         finally:
             self.events.put(("connection", None))
-            output.close()
+            clean_output(output.close)
 
 
 class Application:
@@ -469,6 +434,7 @@ class Application:
             pass
 
         self.localized_widgets = []
+        self.localized_menu_entries = []
         self.status_message = "Getrennt"
         self.language_preference = self.settings.get("language", "system")
         if self.language_preference not in LANGUAGES:
@@ -501,25 +467,29 @@ class Application:
                         bordercolor=border, lightcolor=FRSKY_YELLOW, darkcolor=FRSKY_YELLOW)
         style.configure("Brand.TFrame", background="#ffffff")
         style.configure("Brand.TLabel", background="#ffffff", foreground=ink)
+        style.configure("Ethos.TLabel", background=FRSKY_BLACK, padding=(5, 1))
         body = ttk.Frame(root, padding=(16, 10))
         body.pack(fill="both", expand=True)
         header = ttk.Frame(body, style="Brand.TFrame", padding=(9, 4))
         header.pack(fill="x")
         tk.Frame(body, background=FRSKY_YELLOW, height=3).pack(fill="x")
-        logo_path = Path(__file__).with_name("frsky-logo.png")
-        try:
-            with Image.open(logo_path) as logo:
-                logo.thumbnail((168, 36), Image.Resampling.LANCZOS)
-                self.brand_logo = ImageTk.PhotoImage(logo, master=root)
-        except OSError:
-            pass
-        else:
-            logo_link = ttk.Label(header, image=self.brand_logo, style="Brand.TLabel",
-                                  cursor="hand2", takefocus=True)
-            logo_link.pack(side="left")
+        self.brand_logos = []
+        for filename, size, url, spacing, logo_style in (
+            ("frsky-logo.png", (168, 36), "https://www.frsky-rc.com/", 0, "Brand.TLabel"),
+            ("ethos-logo.png", (82, 32), "https://ethos.frsky-rc.com/", 12, "Ethos.TLabel"),
+        ):
+            try:
+                with Image.open(Path(__file__).with_name(filename)) as logo:
+                    logo.thumbnail(size, Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(logo, master=root)
+            except OSError:
+                continue
+            self.brand_logos.append(photo)
+            logo_link = ttk.Label(header, image=photo, style=logo_style, cursor="hand2", takefocus=True)
+            logo_link.pack(side="left", padx=(spacing, 0))
             for event in ("<Button-1>", "<Return>", "<space>"):
-                logo_link.bind(event, lambda _: webbrowser.open("https://www.frsky-rc.com/"))
-        self.language_picker = ttk.Combobox(header, width=17, state="readonly")
+                logo_link.bind(event, lambda _, target=url: webbrowser.open(target))
+        self.language_picker = ttk.Combobox(header, width=22, state="readonly")
         self.widget(ttk.Button, header, "Hilfe", command=self.show_help).pack(side="right", padx=(8, 0))
         self.widget(ttk.Button, header, "GitHub", command=self.open_project).pack(side="right", padx=(8, 0))
         self.language_picker.pack(side="right")
@@ -529,8 +499,11 @@ class Application:
         bluetooth = self.widget(ttk.LabelFrame, body, "Bluetooth", padding=(10, 6))
         bluetooth.pack(fill="x", pady=(8, 6))
         self.widget(ttk.Label, bluetooth, "Sender").pack(anchor="w")
-        self.sender = ttk.Combobox(bluetooth, state="readonly")
-        self.sender.pack(fill="x", pady=(3, 6))
+        sender_bar = ttk.Frame(bluetooth)
+        sender_bar.pack(fill="x", pady=(3, 6))
+        self.sender = ttk.Combobox(sender_bar, state="readonly")
+        self.sender.pack(side="left", fill="x", expand=True)
+        self.sender_menu = self.management_menu(sender_bar, [("Sender entfernen", self.remove_sender)])
         self.refresh(self.settings["last"])
         bar = ttk.Frame(bluetooth)
         bar.pack(fill="x")
@@ -548,34 +521,30 @@ class Application:
                 self.disconnect_button = self.widget(ttk.Button, bar, "Trennen", command=self.disconnect,
                                                      state="disabled", style="Action.TButton")
                 self.disconnect_button.pack(side="left", padx=(0, 16))
-        self.remove_sender_button = self.widget(ttk.Button, bluetooth, "Sender entfernen",
-                                                command=self.remove_sender, style="Action.TButton")
-        self.remove_sender_button.pack(anchor="w", pady=(5, 0))
-        self.sender.bind("<<ComboboxSelected>>", lambda _: self.update_connect_button())
+        self.search_hint = tk.StringVar()
+        tk.Label(bluetooth, textvariable=self.search_hint, wraplength=540, width=1, height=1,
+                 background=surface, foreground=ink, anchor="w", justify="left").pack(fill="x")
+        self.sender.bind("<<ComboboxSelected>>", self.sender_selected)
         self.update_connect_button()
         self.simulators = self.settings.setdefault("simulators", [])
         simulator = self.widget(ttk.LabelFrame, body, "Simulator", padding=(10, 6))
         simulator.pack(fill="x", pady=(0, 6))
         simulator_bar = ttk.Frame(simulator)
         simulator_bar.pack(fill="x")
-        simulator_tools = ttk.Frame(simulator)
-        simulator_tools.pack(fill="x", pady=(5, 0))
         self.simulator_picker = ttk.Combobox(simulator_bar, state="readonly", width=17)
         self.simulator_picker.pack(side="left", fill="x", expand=True)
         self.simulator_picker.bind("<<ComboboxSelected>>", self.select_simulator)
-        self.simulator_buttons = []
-        for label, command in (
-            ("Starten", self.launch_simulator),
+        self.simulator_menu = self.management_menu(simulator_bar, [
             ("Hinzufügen", lambda: self.edit_simulator()),
             ("Bearbeiten", lambda: self.edit_simulator(self.simulator_picker.current())),
             ("Entfernen", self.remove_simulator),
-        ):
-            primary = label == "Starten"
-            button = self.widget(ttk.Button, simulator_bar if primary else simulator_tools,
-                                 label, command=command, style="Launch.TButton" if primary else "Action.TButton")
-            button.pack(side="left", padx=(12, 0) if primary else (0, 10))
-            if label != "Hinzufügen":
-                self.simulator_buttons.append(button)
+        ])
+        self.simulator_start_button = self.widget(ttk.Button, simulator_bar, "Starten",
+                                                  command=self.request_simulator_launch, style="Launch.TButton")
+        self.simulator_start_button.pack(side="left", padx=(12, 0))
+        self.simulator_hint = tk.StringVar()
+        tk.Label(simulator, textvariable=self.simulator_hint, width=1, height=1, anchor="w",
+                 background=surface, foreground=ink).pack(fill="x", pady=(3, 0))
         self.auto_launch = tk.BooleanVar(value=self.settings.get("auto_launch", False))
         self.auto_launch_at_login = tk.BooleanVar(value=self.settings.get("auto_launch_at_login", False))
         self.widget(ttk.Checkbutton, simulator, "Simulator starten, sobald die Steuerung bereit ist",
@@ -587,35 +556,78 @@ class Application:
         self.update_login_launch_button()
 
         self.diagnostics = []
+        self.quality = None
+        self.neutralized = False
+        self.last_failure = None
+        self.output_values = []
+        self.output_error = None
         self.status = tk.StringVar(value=self.tr(self.status_message))
-        ttk.Label(bluetooth, textvariable=self.status, wraplength=540).pack(anchor="w", pady=(6, 4))
-        self.progress = ttk.Progressbar(bluetooth, mode="indeterminate")
-        self.details_button = self.widget(ttk.Button, bluetooth, "Bluetooth-Details", command=self.show_diagnostics)
-        self.details_button.pack(anchor="w")
+        line_height = font.nametofont("TkDefaultFont", root=root).metrics("linespace")
+        self.status_canvas = tk.Canvas(bluetooth, width=1, height=3 * line_height + 4,
+                                       background=surface, highlightthickness=0)
+        self.status_canvas.pack(fill="x", pady=(6, 4))
+        self.progress_band = self.status_canvas.create_rectangle(0, 0, 0, 0, fill="#fae7a5",
+                                                                outline="", state="hidden")
+        self.status_text = self.status_canvas.create_text(5, 2, anchor="nw", fill=ink, font="TkDefaultFont")
+        self.progress_job = None
+        self.progress_step = 0
+        self.status.trace_add("write", self.update_status_text)
+        self.status_canvas.bind("<Configure>", self.update_status_text)
+        self.update_status_text()
+        connection_tools = ttk.Frame(bluetooth)
+        connection_tools.pack(fill="x")
+        self.widget(ttk.Button, connection_tools, "Bluetooth-Details",
+                    command=self.show_diagnostics).pack(side="left")
+        self.widget(ttk.Button, connection_tools, "Windows-Gamecontroller",
+                    command=self.open_game_controllers).pack(side="left", padx=(8, 0))
 
         self.live = tk.BooleanVar()
         self.widget(ttk.Checkbutton, body, "Live-Anzeige", variable=self.live, command=self.toggle).pack(anchor="w")
-        self.details = ttk.Frame(body)
-        self.details.columnconfigure((0, 1, 2, 3), weight=1, uniform="channel")
-        self.meters = []
+        self.details = ttk.Notebook(body)
+        self.channel_pages = [ttk.Frame(self.details), ttk.Frame(self.details)]
+        for page in self.channel_pages:
+            page.columnconfigure((0, 1, 2, 3), weight=1, uniform="channel")
+        self.details.add(self.channel_pages[0], text="CH1–CH8")
+        self.button_page = ttk.Frame(self.details)
+        self.output_page = ttk.Frame(self.details, padding=(8, 4))
+        self.details.add(self.output_page, text=self.tr("vJoy-Ausgabe"))
+        self.output_status = ttk.Label(self.output_page, wraplength=510)
+        self.output_status.pack(anchor="w")
+        self.output_axes = ttk.Label(self.output_page, justify="left")
+        self.output_axes.pack(anchor="w")
+        self.output_buttons = ttk.Label(self.output_page, wraplength=510, justify="left")
+        self.output_buttons.pack(anchor="w")
+        self.render_output()
+        self.button_status = []
+        self.button_states = []
         for index in range(8):
-            card = tk.Frame(self.details, background=FRSKY_BLACK, highlightthickness=1,
-                            highlightbackground="#555555", padx=7, pady=3)
-            card.grid(row=index // 4, column=index % 4, sticky="ew", padx=3, pady=2)
+            label = ttk.Label(self.button_page, padding=(10, 5))
+            self.button_status.append(label)
+        self.meters = []
+        for index in range(16):
+            card = tk.Frame(self.channel_pages[index // 8], background=LIVE_SURFACE, highlightthickness=1,
+                            highlightbackground=LIVE_BORDER, padx=7, pady=3)
+            card.grid(row=(index % 8) // 4, column=index % 4, sticky="ew", padx=3, pady=2)
             card.columnconfigure(0, weight=1)
-            tk.Label(card, text=f"CH{index + 1}", bg=FRSKY_BLACK, fg="#ffffff",
+            tk.Label(card, text=f"CH{index + 1}", bg=LIVE_SURFACE, fg=FRSKY_BLACK,
                      font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
             number = tk.StringVar(value="—")
-            tk.Label(card, textvariable=number, bg=FRSKY_BLACK, fg=FRSKY_YELLOW,
+            tk.Label(card, textvariable=number, bg=LIVE_SURFACE, fg=LIVE_VALUE,
                      font=("Consolas", 10)).grid(row=0, column=1, sticky="e")
-            meter = tk.Canvas(card, width=100, height=22, background=FRSKY_BLACK,
+            meter = tk.Canvas(card, width=100, height=22, background=LIVE_SURFACE,
                               highlightthickness=0)
             meter.grid(row=1, column=0, columnspan=2, sticky="ew")
             self.meters.append((meter, number))
             meter.bind("<Configure>", lambda event, i=index: self.draw_meter(
-                event.widget, self.channel_values[i] if self.channel_values is not None else None
+                event.widget,
+                self.channel_values[i] if self.channel_values is not None and i < len(self.channel_values) else None,
+                light=True,
             ))
         self.channel_values = None
+        self.details.update_idletasks()
+        self.details.configure(width=self.channel_pages[0].winfo_reqwidth(),
+                               height=max(self.channel_pages[0].winfo_reqheight(),
+                                          4 * (self.button_status[0].winfo_reqheight() + 4)))
         self.footer = ttk.Frame(body)
         self.footer.pack(fill="x", pady=(7, 0))
         self.start_in_tray = tk.BooleanVar(value=self.settings.get("start_in_tray", False))
@@ -638,17 +650,32 @@ class Application:
                 set_autostart(True)
             except OSError:
                 pass
-        if self.start_in_tray.get():
-            root.withdraw()
+        # Reserve room for all supported languages before showing the window.
+        widths = [640]
+        for language in LANGUAGE_CATALOG:
+            for widget, label in self.localized_widgets:
+                widget.configure(text=translate(label, language))
+            root.update_idletasks()
+            widths.append(root.winfo_reqwidth())
+        for widget, label in self.localized_widgets:
+            widget.configure(text=self.tr(label))
+        root.minsize(max(widths), 1)
+        self.render_buttons([])
         root.after(60, self.poll)
         if self.selected() is not None:
             root.after(150, lambda: self.connect(at_start=True))
+
+    @staticmethod
+    def language_for_windows(language_id):
+        primary = language_id & 0x3FF
+        return next((code for code, entry in LANGUAGE_CATALOG.items()
+                     if entry["windows_primary"] == primary), "en")
 
     def effective_language(self):
         if self.language_preference != "system":
             return self.language_preference
         language_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
-        return "de" if language_id & 0x3FF == 7 else "en"
+        return self.language_for_windows(language_id)
 
     def tr(self, value):
         return translate(value, self.language)
@@ -658,8 +685,20 @@ class Application:
         self.localized_widgets.append((widget, label))
         return widget
 
+    def management_menu(self, parent, commands):
+        button = ttk.Menubutton(parent, text="⋯", width=3)
+        button.pack(side="left", padx=(6, 0))
+        menu = tk.Menu(button, tearoff=False)
+        for index, (label, command) in enumerate(commands):
+            menu.add_command(label=self.tr(label), command=command)
+            self.localized_menu_entries.append((menu, index, label))
+        button.configure(menu=menu)
+        return menu
+
     def update_language_picker(self):
-        self.language_picker["values"] = (self.tr("Systemsprache"), "Deutsch", "English")
+        system = self.language_for_windows(ctypes.windll.kernel32.GetUserDefaultUILanguage())
+        self.language_picker["values"] = (f'{self.tr("Systemsprache")} ({LANGUAGE_CATALOG[system]["name"]})',
+                                          *(entry["name"] for entry in LANGUAGE_CATALOG.values()))
         self.language_picker.current(LANGUAGES.index(self.language_preference))
 
     def change_language(self, _=None):
@@ -669,6 +708,14 @@ class Application:
         for widget, label in self.localized_widgets:
             widget.configure(text=self.tr(label))
         self.update_language_picker()
+        for menu, index, label in self.localized_menu_entries:
+            menu.entryconfigure(index, label=self.tr(label))
+        self.details.tab(self.output_page, text=self.tr("vJoy-Ausgabe"))
+        self.render_output()
+        if self.button_states:
+            states, self.button_states = self.button_states, []
+            self.details.tab(self.button_page, text=self.tr("vJoy-Tasten"))
+            self.render_buttons(states)
         self.refresh(self.selected())
         self.update_connect_button()
         self.status.set(self.tr(self.status_message))
@@ -681,8 +728,11 @@ class Application:
             self.simulator_picker.current(max(0, min(index, len(self.simulators) - 1)))
         else:
             self.simulator_picker.set("")
-        for button in self.simulator_buttons:
-            button.state(["!disabled" if self.simulators else "disabled"])
+        for index in (1, 2):
+            self.simulator_menu.entryconfigure(index, state="normal" if self.simulators else "disabled")
+        self.update_simulator_start()
+        if hasattr(self, "tray"):
+            self.tray.update_menu()
 
     def select_simulator(self, _=None):
         self.settings["last_simulator"] = max(0, self.simulator_picker.current())
@@ -762,13 +812,29 @@ class Application:
         self.update_login_launch_button()
         self.save()
 
-    def launch_simulator(self, entry=None):
+    def update_simulator_start(self):
+        self.simulator_start_enabled = bool(
+            self.simulators and self.status_message == READY_STATUS
+            and self.connected_address is not None
+            and not (self.disconnecting or self.scanning or self.closing)
+        )
+        self.simulator_start_button.state(["!disabled" if self.simulator_start_enabled else "disabled"])
+        hint = ("Simulator über ⋯ hinzufügen" if not self.simulators else
+                "" if self.simulator_start_enabled else "Zuerst Sender verbinden")
+        self.simulator_hint.set(self.tr(hint))
+
+    def request_simulator_launch(self, entry=None):
         if entry is None:
             index = self.simulator_picker.current()
             if index < 0:
                 return
             entry = self.simulators[index]
-            self.pending_simulator = None
+        self.launch_simulator(entry)
+
+    def launch_simulator(self, entry):
+        if not self.simulator_start_enabled or entry not in self.simulators:
+            return
+        self.pending_simulator = None
         executable = Path(entry["path"])
         try:
             os.startfile(str(executable), cwd=str(executable.parent))
@@ -811,6 +877,8 @@ class Application:
             self.settings["last"] = next(iter(self.settings["senders"]), "")
         self.refresh(self.connection_target if self.connecting else self.settings["last"])
         self.update_connect_button()
+        if not self.connecting:
+            self.render_buttons([])
         self.save()
 
     def save_autostart(self):
@@ -825,21 +893,37 @@ class Application:
         self.settings["start_in_tray"] = self.start_in_tray.get()
         self.save()
 
-    def save(self):
+    def save(self, settings=None, *, parent=None):
         try:
-            save_settings(SETTINGS, self.settings)
+            save_settings(SETTINGS, self.settings if settings is None else settings)
         except OSError as error:
-            messagebox.showerror(self.tr("Senderprofil konnte nicht gespeichert werden"), str(error), parent=self.root)
+            messagebox.showerror(self.tr("Konfiguration konnte nicht gespeichert werden"),
+                                 str(error), parent=parent or self.root)
+            return False
+        return True
+
+    def sender_selected(self, _event):
+        self.update_connect_button()
+        if not self.connecting:
+            self.render_buttons([])
 
     def update_connect_button(self):
         address = self.selected()
         same_sender = address == self.connected_address or (self.connecting and address == self.connection_target)
         disabled = self.scanning or self.disconnecting or address is None or same_sender
         self.buttons[2].state(["disabled" if self.scanning or self.disconnecting or address is None else "!disabled"])
-        self.remove_sender_button.state(["!disabled" if self.can_remove_sender(address) else "disabled"])
+        self.sender_menu.entryconfigure(0, state="normal" if self.can_remove_sender(address) else "disabled")
         self.buttons[0].state(["disabled" if disabled else "!disabled"])
+        active = self.connecting or self.connected_address is not None
+        self.buttons[1].state(["disabled" if active or self.scanning or self.disconnecting else "!disabled"])
+        self.search_hint.set(self.tr("Sender zuerst trennen, um nach weiteren Sendern zu suchen.") if active else "")
         can_disconnect = self.connecting and not self.disconnecting and not self.scanning
         self.disconnect_button.state(["!disabled" if can_disconnect else "disabled"])
+        self.tray_connect_enabled = self.can_connect_from_tray()
+        if hasattr(self, "simulator_start_button"):
+            self.update_simulator_start()
+        if hasattr(self, "tray"):
+            self.tray.update_menu()
 
     def connect(self, *, at_start=False, launch=True):
         address = self.selected()
@@ -858,8 +942,14 @@ class Application:
         self.raw_channels = None
         self.render_channels(None)
         self.diagnostics.clear()
+        self.quality = None
+        self.neutralized = False
+        self.last_failure = None
+        self.output_error = None
+        self.render_output()
         self.set_status("Starte Verbindung …", busy=True)
-        self.worker.submit(self.worker.connect, address, self.settings["senders"][address]["channels"])
+        profile = self.settings["senders"][address]
+        self.worker.submit(self.worker.connect, address, profile["channels"], profile.get("buttons", []))
 
     def disconnect(self):
         self.pending_simulator = None
@@ -873,6 +963,8 @@ class Application:
         self.worker.submit(self.worker.disconnect)
 
     def scan(self):
+        if self.connecting or self.connected_address is not None or self.scanning or self.disconnecting:
+            return
         self.pending_simulator = None
         self.scanning = True
         self.connecting = False
@@ -895,31 +987,47 @@ class Application:
         panel.pack(fill="both", expand=True)
 
         ttk.Label(panel, text=profile["name"], font=("Segoe UI", 12, "bold")).grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 12)
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 12)
         )
         ttk.Label(panel, text=self.tr("vJoy-Achse")).grid(row=1, column=0, sticky="w")
         ttk.Label(panel, text=self.tr("Senderkanal")).grid(row=1, column=1, sticky="w", padx=(30, 0))
 
-        choices = [f"CH{channel}" for channel in DEFAULT]
+        choices = [f"CH{channel}" for channel in range(1, 17)]
+        axis_labels = tuple(f"{self.tr(AXIS_DESCRIPTIONS[axis])} ({axis})"
+                            for axis in VJoyOutput.axis_names)
         selectors = []
-        for row, (axis, channel) in enumerate(zip(VJoyOutput.axis_names, profile["channels"]), 2):
+        axis_meters = []
+        panel_background = ttk.Style(panel).lookup("TFrame", "background")
+        for row, (axis, channel) in enumerate(zip(axis_labels, profile["channels"]), 2):
             ttk.Label(panel, text=axis).grid(row=row, column=0, sticky="w", pady=3)
             selector = ttk.Combobox(panel, values=choices, state="readonly", width=13)
             selector.current(channel - 1)
+            selector.bind("<FocusIn>", lambda event: event.widget.selection_clear())
+            selector.bind("<<ComboboxSelected>>", lambda event: event.widget.selection_clear())
             selector.grid(row=row, column=1, sticky="w", padx=(30, 0), pady=3)
             selectors.append(selector)
+            meter = tk.Canvas(panel, width=88, height=22, background=panel_background, highlightthickness=0)
+            meter.grid(row=row, column=2, padx=(8, 0), sticky="e")
+            axis_meters.append(meter)
 
         guide = ttk.Frame(panel)
-        guide.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        axis_picker = ttk.Combobox(guide, state="readonly", width=9, values=VJoyOutput.axis_names)
-        axis_picker.current(0)
-        axis_picker.pack(side="left")
+        guide.grid(row=10, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        button_labels = tuple(self.tr(message("Taste {number}", number=i)) for i in range(1, 9))
+        target_picker = ttk.Combobox(guide, state="readonly", width=21, values=axis_labels + button_labels)
+        target_picker.current(0)
+        target_picker.pack(side="left")
         detected = None
         baseline = None
         hint = tk.StringVar()
 
         def use_detected():
-            target = axis_picker.current()
+            target = target_picker.current()
+            if detected is None or target < 0:
+                return
+            if target >= len(axis_labels):
+                source, _, _, _ = button_fields[target - len(axis_labels)]
+                source.current(detected + 1)
+                return
             other = next((i for i, item in enumerate(selectors) if item.current() == detected), None)
             if other is not None:
                 selectors[other].current(selectors[target].current())
@@ -927,40 +1035,52 @@ class Application:
 
         use = ttk.Button(guide, text=self.tr("Erkannten Kanal übernehmen"), command=use_detected, state="disabled")
         use.pack(side="left", padx=6)
-        ttk.Label(panel, textvariable=hint, foreground=FRSKY_BLACK, font=("Segoe UI", 10, "bold")).grid(row=11, column=0, columnspan=2, sticky="w")
+        ttk.Label(panel, textvariable=hint, foreground=FRSKY_BLACK, font=("Segoe UI", 10, "bold")).grid(row=11, column=0, columnspan=3, sticky="w")
 
         detected_meter = tk.Canvas(panel, width=260, height=28, background=FRSKY_BLACK, highlightthickness=0)
-        detected_meter.grid(row=12, column=0, columnspan=2, sticky="ew", pady=3)
+        detected_meter.grid(row=12, column=0, columnspan=3, sticky="ew", pady=3)
 
         timer = None
 
         def detect():
             nonlocal baseline, detected, timer
+            current = None
             if self.raw_channels is None or self.raw_channels[0] != address:
                 baseline = detected = None
                 hint.set(self.tr("Warte auf Daten vom ausgewählten Sender."))
             else:
                 current = self.raw_channels[1]
-                if baseline is None:
+                if baseline is None or len(baseline) != len(current):
                     baseline = current
+                    detected = None
                 else:
                     changes = [abs(old - new) for old, new in zip(baseline, current)]
-                    index = max(range(8), key=changes.__getitem__)
+                    index = max(range(len(changes)), key=changes.__getitem__)
                     if changes[index] >= 35 and changes.count(changes[index]) == 1:
                         detected = index
                         baseline = current
-                hint.set(self.tr("Achse wählen und einen Geber bewegen.") if detected is None
+                hint.set(self.tr("Achse oder Taste wählen und einen Geber bewegen.") if detected is None
                          else f"CH{detected + 1} · {current[detected]} µs")
             self.draw_meter(detected_meter, None if detected is None else current[detected])
             use.state(["disabled" if detected is None else "!disabled"])
+            for selector, meter in zip(selectors, axis_meters):
+                index = selector.current()
+                raw = current[index] if current is not None and 0 <= index < len(current) else None
+                self.draw_meter(meter, raw)
+            for source, position, label, meter in button_fields:
+                channel = source.current()
+                mode = BUTTON_MODES[position.current()]
+                raw = current[channel - 1] if current is not None and 0 < channel <= len(current) else None
+                self.draw_button_meter(meter, raw, mode, assigned=channel > 0)
+                active = raw is not None and button_pressed(raw, mode)
+                label.configure(background=FRSKY_YELLOW if active else "", foreground=FRSKY_BLACK if active else "")
             timer = dialog.after(100, detect)
 
         dialog.bind("<Destroy>", lambda event: dialog.after_cancel(timer)
                     if event.widget is dialog and timer is not None else None)
-        detect()
         error = tk.StringVar()
         ttk.Label(panel, textvariable=error, foreground="#a61b1b", wraplength=350).grid(
-            row=13, column=0, columnspan=2, sticky="w", pady=(8, 0)
+            row=13, column=0, columnspan=3, sticky="w", pady=(8, 0)
         )
 
         def reset():
@@ -968,25 +1088,120 @@ class Application:
                 selector.current(index)
             error.set("")
 
-        def apply_mapping():
+        button_panel = ttk.LabelFrame(panel, text=self.tr("vJoy-Tasten"), padding=6)
+        button_panel.grid(row=14, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+        button_fields = []
+        saved_buttons = (profile.get("buttons") or []) + [(0, True)] * 8
+        for index in range(8):
+            channel, high = saved_buttons[index]
+            row, group = index % 4 + 1, (index // 4) * 4
+            if row == 1:
+                ttk.Label(button_panel, text=self.tr("Gedrückt bei")).grid(row=0, column=group + 2)
+            label = ttk.Label(button_panel, text=self.tr(message("Taste {number}", number=index + 1)), padding=(3, 1))
+            label.grid(row=row, column=group, sticky="ew")
+            source = ttk.Combobox(button_panel, values=[self.tr("Aus"), *choices], state="readonly", width=8)
+            source.current(channel)
+            source.grid(row=row, column=group + 1, padx=6, pady=2)
+            position = ttk.Combobox(button_panel, values=(f"≥ {BUTTON_HIGH} µs", f'{self.tr("Mitte")} ({BUTTON_LOW + 1}–{BUTTON_HIGH - 1} µs)',
+                                                           f"≤ {BUTTON_LOW} µs"), state="readonly", width=21)
+            position.current(BUTTON_MODES.index(high))
+            position.grid(row=row, column=group + 2)
+            meter = tk.Canvas(button_panel, width=62, height=16, background=panel_background, highlightthickness=0)
+            meter.grid(row=row, column=group + 3, padx=(5, 6))
+            button_fields.append((source, position, label, meter))
+        detect()
+
+        def draft_mapping():
             channels = [selector.current() + 1 for selector in selectors]
-            duplicates = [f"CH{channel}" for channel in DEFAULT if channels.count(channel) > 1]
+            if 0 in channels:
+                error.set(self.tr("Wähle für jede Achse einen Senderkanal aus."))
+                return
+            duplicates = [f"CH{channel}" for channel in sorted(set(channels)) if channels.count(channel) > 1]
             if duplicates:
                 error.set(self.tr(message("Mehrfach zugeordnet: {channels}", channels=", ".join(duplicates))))
                 return
+            buttons = [(source.current(), BUTTON_MODES[position.current()] if source.current() else True)
+                       for source, position, _, _ in button_fields]
+            while buttons and not buttons[-1][0]:
+                buttons.pop()
+            return channels, buttons
+
+        def load_draft(channels, buttons):
+            for selector, channel in zip(selectors, channels):
+                selector.current(channel - 1)
+            for (source, position, _, _), (channel, mode) in zip(button_fields, buttons + [(0, True)] * 8):
+                source.current(channel)
+                position.current(BUTTON_MODES.index(mode))
+            error.set("")
+            transfer_status.set(self.tr("Zuordnung geladen. Mit Übernehmen speichern."))
+
+        def load_file():
+            filename = filedialog.askopenfilename(parent=dialog, filetypes=[("XML", "*.xml")])
+            if not filename:
+                return
+            try:
+                load_draft(*import_mapping(filename))
+            except (OSError, ET.ParseError, KeyError, ValueError):
+                messagebox.showerror(self.tr("Zuordnung importieren …"), self.tr("Ungültige Zuordnungsdatei."),
+                                     parent=dialog)
+
+        def export_file():
+            draft = draft_mapping()
+            if draft is None:
+                return
+            filename = filedialog.asksaveasfilename(parent=dialog, defaultextension=".xml",
+                                                     initialfile="frsky-mapping.xml", filetypes=[("XML", "*.xml")])
+            if not filename:
+                return
+            node = ET.Element("frsky-mapping", {"version": "1", **mapping_attributes(*draft)})
+            try:
+                ET.ElementTree(node).write(filename, encoding="utf-8", xml_declaration=True)
+            except OSError as exc:
+                messagebox.showerror(self.tr("Zuordnung konnte nicht exportiert werden"), str(exc), parent=dialog)
+
+        def apply_mapping():
+            draft = draft_mapping()
+            if draft is None:
+                return
+            channels, buttons = draft
+            changed = channels != profile["channels"] or buttons != profile.get("buttons", [])
+            if changed:
+                updated_profile = {**profile, "channels": channels, "buttons": buttons}
+                updated_senders = {**self.settings["senders"], address: updated_profile}
+                if not self.save({**self.settings, "senders": updated_senders}, parent=dialog):
+                    return
+                self.settings["senders"][address] = updated_profile
             dialog.destroy()
-            if channels != profile["channels"]:
-                profile["channels"] = channels
+            if changed and self.connecting and self.connection_target == address:
                 self.connect(launch=False)
 
         actions = ttk.Frame(panel)
-        actions.grid(row=14, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        actions.grid(row=16, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        transfer = ttk.Frame(panel)
+        transfer.grid(row=15, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        picker = ttk.Menubutton(transfer, text=self.tr("Zuordnung kopieren von …"))
+        copy_menu = tk.Menu(picker, tearoff=False)
+        for key, source_profile in self.settings["senders"].items():
+            if key != address:
+                copy_menu.add_command(label=f'{source_profile["name"]} · {key}',
+                                      command=partial(load_draft, source_profile["channels"],
+                                                      source_profile.get("buttons", [])))
+        if copy_menu.index("end") is None:
+            copy_menu.add_command(label=self.tr("Keine weiteren Senderprofile"), state="disabled")
+        picker.configure(menu=copy_menu)
+        picker.pack(side="left", padx=(0, 6))
+        ttk.Button(transfer, text=self.tr("Zuordnung importieren …"), command=load_file).pack(side="left", padx=(0, 6))
+        ttk.Button(transfer, text=self.tr("Zuordnung exportieren …"), command=export_file).pack(side="left")
+        transfer_status = tk.StringVar()
+        ttk.Label(panel, textvariable=transfer_status).grid(row=17, column=0, columnspan=3, sticky="w")
         ttk.Button(actions, text=self.tr("Standard"), command=reset).pack(side="left", padx=(0, 12))
+        ttk.Button(actions, text=self.tr("Windows-Gamecontroller"),
+                   command=partial(self.open_game_controllers, dialog)).pack(side="left", padx=(0, 6))
         ttk.Button(actions, text=self.tr("Übernehmen"), command=apply_mapping, style="Launch.TButton").pack(side="right")
         ttk.Button(actions, text=self.tr("Abbrechen"), command=dialog.destroy).pack(side="right", padx=(0, 6))
         dialog.bind("<Escape>", lambda _: dialog.destroy())
         dialog.grab_set()
-        selectors[0].focus_set()
+        dialog.focus_set()
 
 
     def toggle(self):
@@ -995,26 +1210,98 @@ class Application:
         else:
             self.details.pack_forget()
 
+    def render_buttons(self, states):
+        if not states:
+            address = self.connection_target if self.connecting else self.selected()
+            profile = self.settings["senders"].get(address, {})
+            states = [(index, channel, None)
+                      for index, (channel, _) in enumerate(profile.get("buttons", []), 1) if channel]
+        if states == self.button_states:
+            return
+        self.button_states = states
+        visible = str(self.button_page) in self.details.tabs()
+        if not states:
+            if visible:
+                self.details.forget(self.button_page)
+            return
+        if not visible:
+            self.details.insert(self.details.index(self.output_page), self.button_page, text=self.tr("vJoy-Tasten"))
+        for label in self.button_status:
+            label.grid_remove()
+        for cell, (index, channel, pressed) in enumerate(states):
+            label = self.button_status[index - 1]
+            title = self.tr(message("Taste {number}", number=index))
+            state = self.tr("Keine Live-Daten" if pressed is None else "Gedrückt" if pressed else "Losgelassen")
+            label.configure(text=f"{title} · CH{channel} · {state}",
+                            background=FRSKY_YELLOW if pressed else "#ebe8df",
+                            foreground=FRSKY_BLACK)
+            label.grid(row=cell // 2, column=cell % 2, sticky="ew", padx=4, pady=2)
+
+    def render_output(self):
+        status = ("Letzter vJoy-Schreibvorgang erfolgreich" if self.output_values
+                  else "Keine gültige vJoy-Ausgabe")
+        if self.output_error:
+            status = message("vJoy-Schreibfehler: {error}", error=self.tr(message(self.output_error)))
+        self.output_status.configure(text=self.tr(status))
+        axes = [f"{axis} ← CH{channel}  {value}" for axis, (channel, value)
+                in zip(VJoyOutput.axis_names, self.output_values)]
+        self.output_axes.configure(text="\n".join("    ".join(axes[i:i + 4]) for i in range(0, len(axes), 4)))
+        buttons = []
+        if self.output_values:
+            for index, channel, pressed in self.button_states:
+                state = self.tr("Gedrückt" if pressed else "Losgelassen")
+                buttons.append(f'{self.tr(message("Taste {number}", number=index))} · CH{channel} · {state}')
+        self.output_buttons.configure(text="  ·  ".join(buttons))
+
     def render_channels(self, values):
         self.channel_values = values
+        if values is None:
+            self.output_values = []
+            self.render_buttons([])
+            self.render_output()
+        extra = self.channel_pages[1]
+        if values is not None and len(values) > 8:
+            if str(extra) not in self.details.tabs():
+                self.details.insert(1, extra, text="CH9–CH16")
+        elif str(extra) in self.details.tabs():
+            self.details.forget(extra)
         for index, (meter, number) in enumerate(self.meters):
-            raw = values[index] if values is not None else None
-            self.draw_meter(meter, raw)
+            raw = values[index] if values is not None and index < len(values) else None
+            self.draw_meter(meter, raw, light=True)
             number.set("—" if raw is None else f"{raw} µs")
 
     @staticmethod
-    def draw_meter(meter, raw):
+    def draw_meter(meter, raw, *, light=False):
         left, right = 8, max(18, meter.winfo_width() - 8)
         center = (left + right) / 2
         meter.delete("all")
-        meter.create_line(left, 10, right, 10, fill="#484848", width=10, capstyle="round")
+        meter.create_line(left, 10, right, 10, fill="#ded9cf" if light else "#484848", width=10, capstyle="round")
         for x in (left, center, right):
-            meter.create_line(x, 16, x, 20, fill="#bbbbbb", width=2 if x == center else 1)
+            meter.create_line(x, 16, x, 20, fill="#81796a" if light else "#bbbbbb", width=2 if x == center else 1)
         if raw is not None:
             ratio = (max(988, min(2012, raw)) - 988) / 1024
             position = left + (right - left) * ratio
             meter.create_line(center, 10, position, 10, fill=FRSKY_YELLOW, width=8, capstyle="round")
-            meter.create_oval(position - 5, 5, position + 5, 15, fill=FRSKY_YELLOW, outline="#ffffff", width=1)
+            meter.create_oval(position - 5, 5, position + 5, 15, fill=FRSKY_YELLOW,
+                               outline="#83651a" if light else "#ffffff", width=1)
+
+    @staticmethod
+    def draw_button_meter(meter, raw, mode, *, assigned):
+        meter.delete("all")
+        if not assigned:
+            return
+        left, right = 3, max(4, meter.winfo_width() - 3)
+
+        def pixel(value):
+            return left + (right - left) * (max(988, min(2012, value)) - 988) / 1024
+
+        low, high = {True: (BUTTON_HIGH, 2012), "middle": (BUTTON_LOW + 1, BUTTON_HIGH - 1),
+                     False: (988, BUTTON_LOW)}[mode]
+        meter.create_rectangle(left, 5, right, 11, fill="#ded9cf", outline="")
+        meter.create_rectangle(pixel(low), 5, pixel(high), 11, fill=FRSKY_YELLOW, outline="")
+        if raw is not None:
+            x = pixel(raw)
+            meter.create_line(x, 2, x, 14, fill=FRSKY_BLACK, width=2, tags=("position",))
 
     def tray_simulators(self):
         return (
@@ -1048,10 +1335,10 @@ class Application:
         if state is None:
             return image.crop((0, 0, 111, 111)).resize((64, 64), Image.Resampling.LANCZOS)
 
-        color = {"Bereit": "#177845", "Verbindung wird aufgebaut": "#754019",
+        color = {"Verbunden": "#177845", "Verbindung wird hergestellt": "#754019",
                  "Getrennt": "#454545"}[state]
         draw.ellipse((64, 64, 126, 126), fill=color, outline="#f3f7fb", width=5)
-        if state == "Bereit":
+        if state == "Verbunden":
             draw.line((79, 95, 91, 106, 111, 84), fill="white", width=7, joint="curve")
         elif state == "Getrennt":
             draw.line((82, 82, 108, 108), fill="white", width=7)
@@ -1073,7 +1360,7 @@ class Application:
         self.tray.menu = pystray.Menu(
             pystray.MenuItem(self.tr("Fenster öffnen"), lambda *_: self.events.put(("tray_open", None)), default=True),
             pystray.MenuItem(self.tr("Verbinden"), lambda *_: self.events.put(("tray_connect", None)),
-                             enabled=lambda _: self.can_connect_from_tray()),
+                             enabled=lambda _: self.tray_connect_enabled),
             pystray.MenuItem(self.tr("Trennen"), lambda *_: self.events.put(("tray_disconnect", None)),
                              enabled=lambda _: self.connecting and not self.disconnecting and not self.scanning),
             pystray.MenuItem(self.tr("Sender wechseln"), pystray.Menu(lambda: (
@@ -1085,25 +1372,75 @@ class Application:
                 for address, profile in self.settings["senders"].copy().items()
             ))),
             pystray.MenuItem(self.tr("Simulator starten"), pystray.Menu(self.tray_simulators),
-                             enabled=lambda _: bool(self.simulators)),
+                             enabled=lambda _: self.simulator_start_enabled),
             pystray.MenuItem(self.tr("Beenden"), lambda *_: self.events.put(("tray_exit", None))),
         )
 
     def set_status(self, text, *, busy=False):
         self.status_message = text
         self.status.set(self.tr(text))
-        state = ("Verbindung wird aufgebaut" if busy else
-                 "Bereit" if text == "Bereit · Steuerdaten werden an vJoy übertragen." else "Getrennt")
+        self.update_simulator_start()
+        state = ("Verbindung wird hergestellt" if busy and not self.scanning else
+                 "Verbunden" if text == READY_STATUS else "Getrennt")
         self.update_tray(state)
         if busy:
-            self.progress.pack(fill="x", pady=(0, 6), before=self.details_button)
-            self.progress.start(60)
+            if self.progress_job is None:
+                self.animate_progress()
         else:
-            self.progress.stop()
-            self.progress.pack_forget()
+            self.stop_progress()
+
+    def update_status_text(self, *_):
+        self.status_canvas.itemconfigure(self.status_text, text=self.status.get(),
+                                         width=max(1, self.status_canvas.winfo_width() - 10))
+
+    def animate_progress(self):
+        canvas = self.status_canvas
+        width = canvas.winfo_width()
+        band = width * 0.35
+        phase = self.progress_step / 60
+        left = (width - band) * (1 - abs(2 * phase - 1))
+        canvas.coords(self.progress_band, left, 0, left + band, canvas.winfo_height())
+        canvas.itemconfigure(self.progress_band, state="normal")
+        self.progress_step = (self.progress_step + 1) % 60
+        self.progress_job = self.root.after(30, self.animate_progress)
+
+    def stop_progress(self):
+        if self.progress_job is not None:
+            self.root.after_cancel(self.progress_job)
+            self.progress_job = None
+        self.progress_step = 0
+        self.status_canvas.itemconfigure(self.progress_band, state="hidden")
 
     def open_project(self):
         webbrowser.open(PROJECT_URL)
+
+    def open_game_controllers(self, parent=None):
+        try:
+            os.startfile(str(Path(os.environ["SystemRoot"]) / "System32" / "joy.cpl"))
+        except OSError as error:
+            messagebox.showerror(self.tr("Windows-Gamecontroller konnten nicht geöffnet werden"),
+                                 str(error), parent=parent or self.root)
+
+    def open_vjoy_config(self, parent):
+        candidates = (
+            Path(root) / "vJoy" / folder / "vJoyConf.exe"
+            for variable in ("ProgramFiles", "ProgramFiles(x86)")
+            if (root := os.environ.get(variable))
+            for folder in ("x64", "", "x86")
+        )
+        executable = next((path for path in candidates if path.is_file()), None)
+        if executable is None:
+            messagebox.showinfo(
+                self.tr("vJoy-Konfiguration nicht gefunden"),
+                self.tr("Installiere vJoy über den Download-Link in der Hilfe. Falls vJoy bereits installiert ist, öffne „Configure vJoy“ über das Windows-Startmenü."),
+                parent=parent,
+            )
+            return
+        try:
+            os.startfile(str(executable), cwd=str(executable.parent))
+        except OSError as error:
+            messagebox.showerror(self.tr("vJoy-Konfiguration konnte nicht geöffnet werden"),
+                                 str(error), parent=parent)
 
     def show_help(self):
         dialog = tk.Toplevel(self.root)
@@ -1112,16 +1449,20 @@ class Application:
         panel = ttk.Frame(dialog, padding=16)
         panel.pack(fill="both", expand=True)
         headings = ("So funktioniert es", "vJoy installieren", "Sender vorbereiten", "Am PC verbinden", "Simulator einrichten")
-        for heading, step in zip(headings, HELP_STEPS[self.language]):
+        for heading, step in zip(headings, LANGUAGE_CATALOG[self.language]["help"]):
             ttk.Label(panel, text=self.tr(heading), font=("Segoe UI", 10, "bold")).pack(anchor="w")
             ttk.Label(panel, text=step, wraplength=430, justify="left").pack(anchor="w", pady=(2, 8))
 
-        actions = ttk.Frame(panel)
-        actions.pack(fill="x", pady=(4, 0))
-        ttk.Button(actions, text=self.tr("vJoy auf GitHub"),
-                   command=lambda: webbrowser.open(VJOY_DOWNLOAD)).pack(side="left", padx=(0, 6))
-        ttk.Button(actions, text=self.tr("ETHOS-Handbuch: Bluetooth-Trainer"),
-                   command=lambda: webbrowser.open(TRAINER_MANUAL)).pack(side="left")
+            if heading == "vJoy installieren":
+                actions = ttk.Frame(panel)
+                actions.pack(anchor="w", pady=(0, 8))
+                ttk.Button(actions, text=self.tr("vJoy auf GitHub"),
+                           command=lambda: webbrowser.open(VJOY_DOWNLOAD)).pack(side="left", padx=(0, 6))
+                ttk.Button(actions, text=self.tr("vJoy konfigurieren"),
+                           command=partial(self.open_vjoy_config, dialog)).pack(side="left")
+            elif heading == "Sender vorbereiten":
+                ttk.Button(panel, text=self.tr("ETHOS-Handbuch: Bluetooth-Trainer"),
+                           command=lambda: webbrowser.open(TRAINER_MANUAL)).pack(anchor="w", pady=(0, 8))
         ttk.Label(panel, text=self.tr("Unabhängiges Community-Projekt. Quellcode und Fehlermeldungen findest du auf GitHub."),
                   wraplength=430, justify="left").pack(anchor="w", pady=(8, 4))
         project = ttk.Frame(panel)
@@ -1132,12 +1473,68 @@ class Application:
         dialog.grab_set()
         dialog.focus_set()
 
+    def diagnostic_lines(self):
+        lines = []
+        if self.quality is None:
+            lines.append(self.tr("Warte auf mindestens zwei gültige Trainerframes."))
+        else:
+            count, last, mean, longest, received_at = self.quality
+            lines.append(self.tr(message("Trainerframes seit BLE-Verbindung: {count}", count=count)))
+            lines.append(self.tr(message("Letzter gültiger Frame vor {seconds:.2f} s",
+                                         seconds=max(0, time.monotonic() - received_at))))
+            if count > 1:
+                lines.append(self.tr(message(
+                    "Frameabstand · zuletzt {last:.1f} ms · Mittel {mean:.1f} ms · längste Pause {longest:.1f} ms",
+                    last=last * 1000, mean=mean * 1000, longest=longest * 1000)))
+        if self.neutralized:
+            lines.append(self.tr("vJoy neutralisiert"))
+        return lines
+
+    def copy_diagnostics(self, dialog):
+        build = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
+        phase = ("Bereit" if self.status_message == READY_STATUS else
+                 "Verbindung wird aufgebaut" if self.progress_job is not None else "Getrennt")
+        error = self.tr("Kein Fehler erfasst")
+        if self.last_failure:
+            stage, code = self.last_failure
+            error = f"{self.tr(stage)} ({code})" if code else self.tr(stage)
+        lines = [f"FrSky Bluetooth Trainer · build {build}", self.tr(message("Status: {status}", status=self.tr(phase))),
+                 *self.diagnostic_lines(), self.tr(message("Letzter Fehler: {error}", error=error))]
+        dialog.clipboard_clear()
+        dialog.clipboard_append("\n".join(lines))
+
     def show_diagnostics(self):
-        messagebox.showinfo(
-            self.tr("Bluetooth-Details"),
-            "\n".join(map(self.tr, self.diagnostics)) or self.tr("Noch keine Bluetooth-Messwerte."),
-            parent=self.root,
-        )
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self.tr("Bluetooth-Details"))
+        dialog.transient(self.root)
+        panel = ttk.Frame(dialog, padding=14)
+        panel.pack(fill="both", expand=True)
+        ttk.Label(panel, text=self.tr("Ab Empfang in der App gemessen. Keine Ende-zu-Ende-Latenz."),
+                  wraplength=450).pack(anchor="w", pady=(0, 8))
+        summary = tk.StringVar()
+        ttk.Label(panel, textvariable=summary, wraplength=450, justify="left").pack(anchor="w")
+        actions = ttk.Frame(panel)
+        actions.pack(fill="x", pady=(8, 0))
+        copy_button = ttk.Button(actions, text=self.tr("Diagnose kopieren"))
+        copy_button.pack(side="left")
+        ttk.Button(actions, text=self.tr("Schließen"), command=dialog.destroy).pack(side="right")
+
+        def copy():
+            self.copy_diagnostics(dialog)
+            copy_button.configure(text=self.tr("Diagnose kopiert"))
+
+        copy_button.configure(command=copy)
+
+        def refresh():
+            nonlocal timer
+            lines = self.diagnostic_lines()
+            summary.set("\n".join(lines + [""] + list(map(self.tr, self.diagnostics))))
+            timer = dialog.after(250, refresh)
+
+        timer = None
+        refresh()
+        dialog.bind("<Destroy>", lambda event: dialog.after_cancel(timer) if event.widget is dialog else None)
+        dialog.bind("<Escape>", lambda _: dialog.destroy())
 
     def poll(self):
         while not self.events.empty():
@@ -1154,8 +1551,7 @@ class Application:
                     self.connect()
             elif kind == "tray_simulator":
                 if value in self.simulators:
-                    self.pending_simulator = None
-                    self.launch_simulator(value)
+                    self.request_simulator_launch(value)
             elif kind == "tray_switch":
                 if self.can_switch_from_tray(value):
                     self.refresh(value)
@@ -1173,6 +1569,10 @@ class Application:
                 for button in self.buttons:
                     button.state(["!disabled"])
                 self.update_connect_button()
+                self.quality = None
+                self.neutralized = False
+                self.output_error = None
+                self.render_channels(None)
                 self.set_status("Getrennt. Klicke auf Verbinden, um erneut zu starten.")
             elif self.disconnecting:
                 continue
@@ -1190,12 +1590,29 @@ class Application:
                 self.set_status(value)
             elif kind == "progress":
                 self.set_status(value, busy=True)
+            elif kind == "neutralized":
+                self.neutralized = value
+            elif kind == "failure":
+                self.last_failure = value
+            elif kind == "quality":
+                self.quality = value
+            elif kind == "vjoy_output":
+                self.output_values = value
+                self.output_error = None
+                self.render_output()
+            elif kind == "vjoy_error":
+                self.last_failure = ("vJoy-Ausgabe fehlgeschlagen", None)
+                self.output_error = value
+                self.output_values = []
+                self.render_output()
             elif kind == "diagnostic":
                 self.diagnostics.append(value)
                 del self.diagnostics[:-12]
             elif kind == "connection":
                 self.connected_address = value
                 self.update_connect_button()
+            elif kind == "button_states":
+                self.render_buttons(value)
             elif kind == "values":
                 if value is None:
                     self.raw_channels = None
@@ -1212,8 +1629,7 @@ class Application:
                 self.update_connect_button()
             elif kind == "finished" and value == "scan":
                 self.scanning = False
-                self.progress.stop()
-                self.progress.pack_forget()
+                self.stop_progress()
                 for button in self.buttons:
                     button.state(["!disabled"])
                 self.update_connect_button()
@@ -1259,7 +1675,12 @@ def start_app():
     set_app_id.restype = ctypes.c_long
     set_app_id("FrSkyBluetoothTrainer.Desktop")
     root = tk.Tk()
-    Application(root)
+    root.withdraw()
+    root.resizable(False, False)
+    app = Application(root)
+    root.update_idletasks()
+    if not app.start_in_tray.get():
+        root.deiconify()
     root.mainloop()
 
 

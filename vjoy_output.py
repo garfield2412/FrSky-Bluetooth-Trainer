@@ -3,6 +3,19 @@ import os
 from pathlib import Path
 
 
+BUTTON_HIGH = 1700
+BUTTON_LOW = 1300
+
+
+BUTTON_MODES = (True, "middle", False)
+
+
+def button_pressed(value, mode):
+    if mode == "middle":
+        return BUTTON_LOW < value < BUTTON_HIGH
+    return value >= BUTTON_HIGH if mode else value <= BUTTON_LOW
+
+
 class VJoyUnavailable(RuntimeError):
     pass
 
@@ -10,8 +23,9 @@ class VJoyUnavailable(RuntimeError):
 class VJoyOutput:
     axis_names = ("X", "Y", "Z", "Rx", "Ry", "Rz", "Slider", "Dial")
 
-    def __init__(self, channels, dll_path=None):
+    def __init__(self, channels, dll_path=None, *, buttons=()):
         self.channels = channels
+        self.buttons = [(index, channel, high) for index, (channel, high) in enumerate(buttons, 1) if channel]
         self.axes = range(0x30, 0x30 + len(channels))
         self.device = 1
         candidates = [Path(dll_path)] if dll_path else [
@@ -37,6 +51,8 @@ class VJoyOutput:
             ("RelinquishVJD", [c.c_uint], None),
             ("GetVJDAxisMin", [c.c_uint, c.c_uint, c.POINTER(c.c_long)], c.c_int),
             ("GetVJDAxisMax", [c.c_uint, c.c_uint, c.POINTER(c.c_long)], c.c_int),
+            ("GetVJDButtonNumber", [c.c_uint], c.c_int),
+            ("SetBtn", [c.c_int, c.c_uint, c.c_ubyte], c.c_int),
             ("SetAxis", [c.c_long, c.c_uint, c.c_uint], c.c_int),
         ):
             function = getattr(self.api, name)
@@ -50,18 +66,49 @@ class VJoyOutput:
                 name = self.axis_names[axis - 0x30]
                 raise RuntimeError(f"Aktiviere die Achse {name} für vJoy-Gerät 1.")
             self.ranges.append((low.value, high.value))
+        if self.buttons and self.buttons[-1][0] > self.api.GetVJDButtonNumber(self.device):
+            raise RuntimeError("Aktiviere in Configure vJoy die belegten Tasten für Gerät 1.")
         if not self.api.AcquireVJD(self.device):
             raise RuntimeError("vJoy-Gerät 1 konnte nicht geöffnet werden. Prüfe die Konfiguration und andere Programme.")
 
     def write(self, values):
+        positions = self.write_axes(values)
+        states = []
+        for index, channel, high in self.buttons:
+            pressed = button_pressed(values[channel - 1], high)
+            self.set_button(index, pressed)
+            states.append((index, channel, pressed))
+        return positions, states
+
+    def set_button(self, index, pressed):
+        if not self.api.SetBtn(pressed, self.device, index):
+            raise RuntimeError("vJoy hat den Tastenzustand abgelehnt.")
+
+    def write_axes(self, values):
+        positions = []
         for axis, (low, high), channel in zip(self.axes, self.ranges, self.channels):
             value = max(988, min(2012, values[channel - 1]))
             position = low + round((value - 988) * (high - low) / 1024)
             if not self.api.SetAxis(position, self.device, axis):
                 raise RuntimeError("vJoy hat die Achsenposition abgelehnt.")
+            positions.append((channel, position))
+        return positions
 
     def center(self):
-        self.write([1500] * 8)
+        first_error = None
+        for index, _, _ in self.buttons:
+            try:
+                self.set_button(index, False)
+            except (OSError, RuntimeError) as error:
+                if first_error is None:
+                    first_error = error
+        try:
+            self.write_axes([1500] * max(self.channels))
+        except (OSError, RuntimeError):
+            if first_error is None:
+                raise
+        if first_error is not None:
+            raise first_error
 
     def close(self):
         try:

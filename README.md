@@ -1,28 +1,60 @@
 # FrSky Bluetooth Trainer
 
-[Deutsch](#deutsch) · [English](#english)
+Windows app for flight simulators such as HELI-X. It receives 8 or 16 FrSky ETHOS trainer channels over Bluetooth LE and maps them to up to eight vJoy axes and eight configurable buttons. Tested with an X20 Pro AW running ETHOS 26.1. Independent community project.
 
-## Deutsch
+## Install from source
 
-Windows-App für Flugsimulatoren wie HELI-X. Sie empfängt bis zu acht FrSky-ETHOS-Trainerkanäle direkt per Bluetooth LE und gibt sie als virtuellen Joystick über vJoy aus. Getestet mit X20 Pro AW und ETHOS 26.1. Unabhängiges Community-Projekt.
+You need Windows 10 or 11 on an x64 PC with Bluetooth LE, a FrSky radio with Bluetooth trainer mode, and vJoy.
 
-1. Installiere Python 3.14 x64 mit Tkinter und führe im Projektordner `py -3.14 -m pip install -r requirements.txt` aus.
-2. Lade den Windows-Installer unter **Assets** herunter. Aktiviere in **Configure vJoy** für Gerät 1 die Achsen X, Y, Z, Rx, Ry, Rz, Slider und Dial. [vJoy-Release](https://github.com/BrunnerInnovation/vJoy/releases/tag/v2.2.2.0)
-3. Öffne am Sender **Modell → Trainer**, füge über **+** einen Bluetooth-Link hinzu und aktiviere ihn mit **Slave** und **CH1–CH8**. [ETHOS-Handbuch](https://ethos-doc.frsky-rc.com/model-setup/trainer/#bluetooth)
-4. Starte `FrSky Bluetooth Trainer.cmd`. Wähle **Sender suchen**, deinen Sender und **Verbinden**. Sobald **Bereit** erscheint, wähle und kalibriere **vJoy Device** im Simulator.
+1. In the GitHub repository, choose **Code → Download ZIP** and extract the ZIP to a folder you can write to. Open the extracted folder containing `requirements.txt`. You can also clone the repository with Git.
+2. Install **Python 3.14** using the **Windows installer (64-bit)**. Include pip, Tcl/Tk and the Python launcher. Open a new PowerShell window after installation. [Python for Windows](https://www.python.org/downloads/windows/)
+3. Open PowerShell in the extracted folder and run:
 
-Senderprofile, Sprache und Simulatorpfade werden lokal in `config.xml` gespeichert. Die App bietet eine Live-Kanalanzeige, Kanalzuordnung pro Sender und ein Menü im Windows-Infobereich. Die Konsolenvariante lässt sich mit `py -3.14 -u test_frsky_ble.py --address AA:BB:CC:DD:EE:FF` starten. Ohne `--address` verwendet sie den zuletzt verbundenen Sender aus der Konfiguration.
+   ```powershell
+   py -3.14 --version
+   py -3.14 -m pip install -r requirements.txt
+   ```
 
-## English
+4. In the vJoy release's **Assets** section, download and run `vJoySetup_v2.2.2.0_Win10_Win11.exe`. Open **Configure vJoy** from the Windows Start menu or from the app under **Help → Install vJoy**. Select device 1 and enable **X, Y, Z, Rx, Ry, Rz, Slider and Dial**. If you plan to map buttons, enable at least as many as the highest button number you want to use. Click **Apply**. To verify the installation before starting the app, press **Win+R** and enter `joy.cpl`. From the app, click **Windows game controllers** next to **Bluetooth details** or in the channel mapping dialog. Select **vJoy Device** and open **Properties** to test axes and buttons. [vJoy release](https://github.com/BrunnerInnovation/vJoy/releases/tag/v2.2.2.0)
 
-Windows app for flight simulators such as HELI-X. It receives up to eight FrSky ETHOS trainer channels directly over Bluetooth LE and forwards them to vJoy. Tested with an X20 Pro AW running ETHOS 26.1. Independent community project.
+## First connection
 
-1. Install 64-bit Python 3.14 with Tkinter. In the project directory, run `py -3.14 -m pip install -r requirements.txt`.
-2. Download the Windows installer under **Assets**. In **Configure vJoy**, enable X, Y, Z, Rx, Ry, Rz, Slider and Dial for device 1. [vJoy release](https://github.com/BrunnerInnovation/vJoy/releases/tag/v2.2.2.0)
-3. On the radio, open **Model → Trainer**, add a Bluetooth link with **+**, enable it and select **Slave** and **CH1–CH8**. [ETHOS manual](https://ethos-doc.frsky-rc.com/model-setup/trainer/#bluetooth)
-4. Open `FrSky Bluetooth Trainer.cmd`. Click **Find transmitters**, select the radio and click **Connect**. Once it shows **Ready**, select and calibrate **vJoy Device** in your simulator.
+1. Enable Bluetooth in Windows. On your radio, open **Model → Trainer**, add a **Bluetooth** link with **+**, enable it and select **Slave**. Choose **CH1–CH8** or **CH1–CH16**, if available. [ETHOS Bluetooth trainer manual](https://ethos-doc.frsky-rc.com/model-setup/trainer/#bluetooth)
+2. Double-click `FrSky Bluetooth Trainer.cmd`. Click **Find transmitters**, select your radio and click **Connect**. The app connects directly through Bluetooth LE. Windows audio pairing is unnecessary.
+3. Wait for **Ready**, then open **Live channels** and move a stick to verify the input. In your simulator, select and calibrate **vJoy Device**. To use switches as buttons, assign them under **Map channels → vJoy buttons** and bind the corresponding buttons in the simulator.
+
+- **Live channels → vJoy output** shows the source channel and driver value for each axis, the mapped button states and the last write status.
+- **Map channels → vJoy buttons** supports low (≤ 1300 µs), middle (1301–1699 µs) and high (≥ 1700 µs) positions.
+- In **Map channels**, use **Copy mapping from**, **Import mapping** or **Export mapping** to reuse assignments. The XML export contains only the draft axis and button mapping. Click **Apply** to save a copied or imported draft.
+- **Bluetooth details** shows the latest, mean and longest interval between valid trainer frames received by the app. It also shows how long ago the latest frame arrived and whether vJoy was neutralized after a gap. **Copy diagnostics** copies the build ID, status, frame statistics and last error category without transmitter addresses or local paths. The frame statistics describe data arrival, not end-to-end latency.
+
+If the launcher closes without opening a window, run `py -3.14 FrSkyApp.pyw` from PowerShell to see the startup error. If it reports a missing Python package, rerun the dependency installation command above.
+
+The GUI and help are available in German, English and French. **System language** follows the Windows display language and falls back to English. You can also select a language manually.
 
 Transmitter profiles, language and simulator paths are stored locally in `config.xml`. The app includes live channel meters, per-transmitter channel mapping and a Windows notification-area menu. To use the console, run `py -3.14 -u test_frsky_ble.py --address AA:BB:CC:DD:EE:FF`. Omit `--address` to use the last connected transmitter from the configuration.
+
+Disconnect before searching for another transmitter. Simulator launch from the window or tray is available once the controls are ready. Use ⋯ beside the transmitter or simulator list to manage its entries. The channel mapping dialog shows each assigned button’s activation range in yellow and marks the live input when available. A brief interruption resets vJoy inputs after 500 ms. Bluetooth reconnects after five seconds without a valid frame.
+
+For implementation and testing details, see the [technical documentation](docs/TECHNICAL.md).
+
+## Latency
+
+The Bluetooth path includes transmission from the radio, Windows BLE notification delivery, the bridge, vJoy, and the simulator's input and rendering loop. A wired USB joystick uses the radio's USB HID reporting path. The total latency and the difference between these paths depend on the radio, PC and simulator. Connection setup and reconnect times are separate from the delay of an input during normal operation.
+
+The bridge now sends changed channel values to vJoy as soon as it decodes a valid BLE notification. The live display is limited to about 20 updates per second. The previous implementation checked for changes every 50 ms and forwarded only the latest values at each check.
+
+### Software benchmark
+
+A local test fed each version 120 simulated notifications with changing values. It measured the time from entering the BLE notification callback to entering a stubbed vJoy write. The mean and maximum apply to changes that reached the write call.
+
+| Metric | Previous 50 ms loop | Direct forwarding |
+| --- | ---: | ---: |
+| Changes forwarded | 36 of 120 | 120 of 120 |
+| Mean delay to write call | 8.357 ms | 0.009 ms |
+| Maximum observed delay to write call | 49.676 ms | 0.032 ms |
+
+In this run, direct forwarding saved about 8.35 ms on average among forwarded changes. The two means cover different sets of changes because the previous loop coalesced intermediate updates. The test excluded radio transmission, the real vJoy driver, simulator processing and display latency. An end-to-end Bluetooth versus USB comparison has yet to be measured.
 
 ## Acknowledgments
 

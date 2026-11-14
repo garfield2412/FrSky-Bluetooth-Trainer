@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import msvcrt
+import shutil
 import signal
 import sys
 from functools import reduce
@@ -15,10 +16,13 @@ from bleak.exc import BleakError
 SERVICE = "0000fff0-0000-1000-8000-00805f9b34fb"
 CHARACTERISTIC = "0000fff6-0000-1000-8000-00805f9b34fb"
 FRAME_SIZE = 14
+EXTENDED_FRAME_SIZE = 26
 
 
 class TrainerDecoder:
-    def __init__(self):
+    def __init__(self, *, extended=False):
+        self.frame_sizes = (FRAME_SIZE, EXTENDED_FRAME_SIZE) if extended else (FRAME_SIZE,)
+        self.max_frame_size = self.frame_sizes[-1]
         self.frame = None
         self.escaped = False
 
@@ -26,7 +30,7 @@ class TrainerDecoder:
         for byte in data:
             if byte == 0x7E:
                 frame = self.frame
-                valid_length = frame is not None and len(frame) == FRAME_SIZE
+                valid_length = frame is not None and len(frame) in self.frame_sizes
                 complete = valid_length and not self.escaped
                 self.frame = bytearray()
                 self.escaped = False
@@ -40,13 +44,13 @@ class TrainerDecoder:
                     self.escaped = True
                 else:
                     self.frame.append(byte)
-                if len(self.frame) > FRAME_SIZE:
+                if len(self.frame) > self.max_frame_size:
                     self.frame = None
 
 
 def decode_channels(frame):
     channels = []
-    for offset in range(1, 13, 3):
+    for offset in range(1, len(frame) - 1, 3):
         first, middle, last = frame[offset:offset + 3]
         channels.append(first | ((middle & 0xF0) << 4))
         channels.append(((middle & 0x0F) << 4) | (last >> 4) | ((last & 0x0F) << 8))
@@ -54,7 +58,7 @@ def decode_channels(frame):
 
 
 async def show_channels(client, disconnected, joystick):
-    decoder = TrainerDecoder()
+    decoder = TrainerDecoder(extended=True)
     loop = asyncio.get_running_loop()
     latest = None
     last_packet = loop.time()
@@ -68,6 +72,7 @@ async def show_channels(client, disconnected, joystick):
     print("BLE verbunden. Warte auf Trainerdaten ...")
     await client.start_notify(CHARACTERISTIC, on_packet)
     previous = None
+    display_rows = []
     try:
         while not disconnected.is_set():
             if loop.time() - last_packet > 5:
@@ -75,16 +80,30 @@ async def show_channels(client, disconnected, joystick):
             if latest is not None and latest != previous:
                 if joystick is not None:
                     joystick.write(latest)
-                line = "  ".join(f"CH{i}: {value:4d}" for i, value in enumerate(latest, 1))
-                print(f"\r{line}", end="", flush=True)
+                fields = [f"CH{i:02d}: {value:4d}" for i, value in enumerate(latest, 1)]
+                if sys.stdout.isatty():
+                    width = shutil.get_terminal_size(fallback=(80, 24)).columns
+                    columns = min(8, max(1, width // 12))
+                    rows = ["  ".join(fields[i:i + columns]) for i in range(0, len(fields), columns)]
+                    cursor = f"\x1b[{len(display_rows)}A\r" if display_rows else ""
+                    lines = [
+                        (rows[i] if i < len(rows) else "").ljust(
+                            min(width - 1, len(display_rows[i])) if i < len(display_rows) else 0
+                        )
+                        for i in range(max(len(rows), len(display_rows)))
+                    ]
+                    cursor_back = f"\x1b[{len(lines) - len(rows)}A" if len(lines) > len(rows) else ""
+                    sys.stdout.write(cursor + "\n".join(lines) + "\n" + cursor_back)
+                    sys.stdout.flush()
+                    display_rows = rows
+                else:
+                    print("  ".join(fields), flush=True)
                 previous = latest
             try:
                 await asyncio.wait_for(disconnected.wait(), timeout=0.1)
             except TimeoutError:
                 pass
     finally:
-        if previous is not None:
-            print()
         if client.is_connected:
             try:
                 await client.stop_notify(CHARACTERISTIC)
@@ -182,5 +201,11 @@ if __name__ == "__main__":
         sys.exit(str(error))
     finally:
         if joystick is not None:
-            joystick.close()
+            primary_error = sys.exception()
+            try:
+                joystick.close()
+            except (OSError, RuntimeError) as error:
+                if primary_error is None:
+                    sys.exit(f"vJoy cleanup failed: {error}")
+                print(f"vJoy cleanup also failed: {error}", file=sys.stderr)
     print("\nLive-Anzeige beendet.")

@@ -2,7 +2,6 @@
 /config.tmp
 /transmitter-list.json*
 /senders.json*
-/frsky-logo.png
 /ble-libs/
 /tray-libs/
 __pycache__/
