@@ -44,18 +44,6 @@ The Bluetooth path includes transmission from the radio, Windows BLE notificatio
 
 The bridge now sends changed channel values to vJoy as soon as it decodes a valid BLE notification. The live display is limited to about 20 updates per second. The previous implementation checked for changes every 50 ms and forwarded only the latest values at each check.
 
-### Software benchmark
-
-A local test fed each version 120 simulated notifications with changing values. It measured the time from entering the BLE notification callback to entering a stubbed vJoy write. The mean and maximum apply to changes that reached the write call.
-
-| Metric | Previous 50 ms loop | Direct forwarding |
-| --- | ---: | ---: |
-| Changes forwarded | 36 of 120 | 120 of 120 |
-| Mean delay to write call | 8.357 ms | 0.009 ms |
-| Maximum observed delay to write call | 49.676 ms | 0.032 ms |
-
-In this run, direct forwarding saved about 8.35 ms on average among forwarded changes. The two means cover different sets of changes because the previous loop coalesced intermediate updates. The test excluded radio transmission, the real vJoy driver, simulator processing and display latency. An end-to-end Bluetooth versus USB comparison has yet to be measured.
-
 ## Acknowledgments
 
 [BTWifiSerial](https://github.com/Amigache/BTWifiSerial) served as a reference for the FrSky BLE trainer frame format. The app uses [Bleak](https://github.com/hbldh/bleak), [vJoy](https://github.com/BrunnerInnovation/vJoy), [Pillow](https://github.com/python-pillow/Pillow) and [pystray](https://github.com/moses-palmer/pystray).

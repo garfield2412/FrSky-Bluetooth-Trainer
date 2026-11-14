@@ -36,8 +36,6 @@ The localized Help dialog opens the graphical Configure vJoy utility (`vJoyConf.
 
 Bluetooth details samples decoded trainer-frame arrival on the worker’s monotonic clock, including repeated values. It publishes the latest, mean and largest completed interval on a 250 ms display cadence, with immediate updates for the first two frames and after neutralization. It resets the statistics when a BLE session is opened. The diagnostics dialog shows frame age and neutralization state. Its clipboard report includes a source build ID, status, frame metrics and an error category. It excludes raw errors, addresses and paths. Frames decoded from one notification can arrive very close together in the app.
 
-The benchmark in the [README](../README.md#latency) measures only the path from a simulated BLE callback to a stubbed vJoy write. It does not measure radio transmission, actual driver updates or visible simulator response.
-
 ## Configuration and Windows integration
 
 The header uses local FrSky and [ETHOS logo assets](https://ethos.frsky-rc.com/wp-content/uploads/2020/07/ETHOS-logo.png). The ETHOS logo has a dark background so its white lettering stays visible. Each logo opens its respective official site.
