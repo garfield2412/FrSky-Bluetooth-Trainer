@@ -16,10 +16,12 @@ from pathlib import Path
 from tkinter import filedialog, font, messagebox, ttk
 
 from test_frsky_ble import CHARACTERISTIC, SERVICE, BleakClient, BleakError, BleakScanner, TrainerDecoder
-from vjoy_output import BUTTON_HIGH, BUTTON_LOW, BUTTON_MODES, VJoyOutput, VJoyUnavailable, button_pressed
+from vjoy_output import BUTTON_HIGH, BUTTON_LOW, BUTTON_MODES, VJoyOutput, VJoyUnavailable, button_pressed, load_vjoy_api
 
 FROZEN = getattr(sys, "frozen", False)
 APP_DIRECTORY = Path(sys.executable).parent if FROZEN else Path(__file__).parent
+from vjoy_setup import install_vjoy
+
 SETTINGS = (Path(os.environ["LOCALAPPDATA"]) / "FrSky Bluetooth Trainer" / "config.xml"
             if FROZEN else APP_DIRECTORY / "config.xml")
 LEGACY_SETTINGS = SETTINGS.with_name("transmitter-list.json")
@@ -44,8 +46,7 @@ AXIS_DESCRIPTIONS = {'X': 'X-Achse', 'Y': 'Y-Achse', 'Z': 'Z-Achse', 'Rx': 'Dreh
 
 VJOY_DOWNLOAD = "https://github.com/BrunnerInnovation/vJoy/releases/tag/v2.2.2.0"
 VJOY_TITLE = "vJoy fehlt oder ist nicht aktiv"
-VJOY_PROMPT = ("Lade vJoy herunter und installiere es. Wenn es bereits installiert ist, "
-               "aktiviere oder repariere den Treiber. Klicke danach erneut auf Verbinden.\n\nDownloadseite öffnen?")
+
 
 
 PROJECT_URL = "https://github.com/garfield2412/FrSky-Bluetooth-Trainer"
@@ -425,6 +426,9 @@ class Application:
         self.events = queue.SimpleQueue()
         self.worker = BluetoothWorker(self.events)
         self.closing = False
+        self.setup_dialog = None
+        self.setup_busy = False
+        self.setup_cancel = threading.Event()
         self.pending_simulator = None
         self.raw_channels = None
         self.tray_state = None
@@ -673,6 +677,7 @@ class Application:
             widget.configure(text=self.tr(label))
         root.minsize(max(widths), 1)
         self.render_buttons([])
+        root.after(300, self.check_vjoy_setup)
         root.after(60, self.poll)
         if self.selected() is not None:
             root.after(150, lambda: self.connect(at_start=True))
@@ -922,7 +927,7 @@ class Application:
     def update_connect_button(self):
         address = self.selected()
         same_sender = address == self.connected_address or (self.connecting and address == self.connection_target)
-        disabled = self.scanning or self.disconnecting or address is None or same_sender
+        disabled = self.setup_busy or self.scanning or self.disconnecting or address is None or same_sender
         self.buttons[2].state(["disabled" if self.scanning or self.disconnecting or address is None else "!disabled"])
         self.sender_menu.entryconfigure(0, state="normal" if self.can_remove_sender(address) else "disabled")
         self.buttons[0].state(["disabled" if disabled else "!disabled"])
@@ -934,12 +939,17 @@ class Application:
         self.tray_connect_enabled = self.can_connect_from_tray()
         if hasattr(self, "simulator_start_button"):
             self.update_simulator_start()
+        if self.setup_dialog is not None and self.setup_dialog.winfo_exists():
+            self.setup_install_button.state([
+                "disabled" if self.setup_busy or self.connecting or self.connected_address or self.disconnecting
+                else "!disabled"
+            ])
         if hasattr(self, "tray"):
             self.tray.update_menu()
 
     def connect(self, *, at_start=False, launch=True):
         address = self.selected()
-        if address is None:
+        if address is None or self.setup_busy:
             return
         self.pending_simulator = None
         index = self.simulator_picker.current()
@@ -1332,7 +1342,7 @@ class Application:
                 and not (self.connecting and address == self.connection_target))
 
     def can_connect_from_tray(self):
-        return self.selected() is not None and not (self.connecting or self.connected_address or self.disconnecting or self.scanning or self.closing)
+        return self.selected() is not None and not (self.setup_busy or self.connecting or self.connected_address or self.disconnecting or self.scanning or self.closing)
 
     @staticmethod
     def draw_tray_icon(state=None):
@@ -1454,6 +1464,99 @@ class Application:
             messagebox.showerror(self.tr("vJoy-Konfiguration konnte nicht geöffnet werden"),
                                  str(error), parent=parent)
 
+    def check_vjoy_setup(self):
+        def check():
+            try:
+                load_vjoy_api()
+            except VJoyUnavailable:
+                self.events.put(("setup_missing", None))
+        threading.Thread(target=check, daemon=True).start()
+
+    def show_vjoy_setup(self):
+        if self.setup_dialog is not None and self.setup_dialog.winfo_exists():
+            self.setup_dialog.lift()
+            return
+        dialog = tk.Toplevel(self.root)
+        self.setup_dialog = dialog
+        self.setup_previous_grab = dialog.grab_current()
+        dialog.grab_set()
+        dialog.title(self.tr("vJoy einrichten"))
+        dialog.resizable(False, False)
+        panel = ttk.Frame(dialog, padding=16)
+        panel.pack(fill="both", expand=True)
+        ttk.Label(panel, text=self.tr("vJoy stellt den virtuellen Joystick für deinen Simulator bereit."),
+                  wraplength=460).pack(anchor="w")
+        ttk.Label(panel, text=self.tr("Download von BRUNNER auf GitHub · vJoy 2.2.2.0 · 5,3 MB. Windows fragt nach Administratorrechten."),
+                  wraplength=460).pack(anchor="w", pady=(6, 10))
+        self.setup_status = tk.StringVar()
+        ttk.Label(panel, textvariable=self.setup_status, wraplength=460).pack(anchor="w")
+        self.setup_progress = ttk.Progressbar(panel, maximum=100, length=460)
+        self.setup_progress.pack(fill="x", pady=(6, 10))
+        actions = ttk.Frame(panel)
+        actions.pack(fill="x")
+        self.setup_install_button = ttk.Button(actions, text=self.tr("vJoy installieren"),
+                                               command=self.start_vjoy_install, style="Launch.TButton")
+        self.setup_install_button.pack(side="left")
+        ttk.Button(actions, text=self.tr("Downloadseite öffnen"),
+                   command=lambda: webbrowser.open(VJOY_DOWNLOAD)).pack(side="left", padx=8)
+        self.setup_later_button = ttk.Button(actions, text=self.tr("Später"), command=self.dismiss_vjoy_setup)
+        self.setup_later_button.pack(side="right")
+        if self.connecting or self.connected_address:
+            self.setup_install_button.state(["disabled"])
+        dialog.protocol("WM_DELETE_WINDOW", self.dismiss_vjoy_setup)
+
+    def dismiss_vjoy_setup(self):
+        if self.setup_busy:
+            self.setup_status.set(self.tr("Bitte warte, bis Download oder Installation abgeschlossen sind."))
+            return
+        self.setup_dialog.destroy()
+        self.setup_dialog = None
+        previous = self.setup_previous_grab
+        if previous is not None and previous.winfo_exists():
+            previous.grab_set()
+
+    def start_vjoy_install(self):
+        if self.setup_busy or self.connecting or self.connected_address:
+            return
+        self.setup_busy = True
+        self.setup_cancel.clear()
+        self.setup_progress["value"] = 0
+        self.setup_status.set(self.tr("vJoy wird heruntergeladen und geprüft …"))
+        self.setup_install_button.state(["disabled"])
+        self.setup_later_button.state(["disabled"])
+        self.update_connect_button()
+        threading.Thread(target=install_vjoy, args=(self.setup_cancel, self.events), daemon=True).start()
+
+    def handle_setup_event(self, kind, value):
+        if kind == "setup_missing":
+            self.show_vjoy_setup()
+            return
+        if self.setup_dialog is None:
+            return
+        if kind == "setup_progress":
+            self.setup_progress["value"] = value
+            return
+        if kind == "setup_installing":
+            self.setup_status.set(self.tr("Prüfung erfolgreich. Folge dem vJoy-Installationsprogramm."))
+            return
+        self.setup_busy = False
+        self.setup_install_button.state(["!disabled"])
+        self.setup_later_button.state(["!disabled"])
+        self.update_connect_button()
+        if kind == "setup_error":
+            self.setup_status.set(self.tr("Download oder Installation fehlgeschlagen. Du kannst es erneut versuchen oder die Downloadseite öffnen."))
+            return
+        if kind == "setup_complete":
+            try:
+                load_vjoy_api()
+            except VJoyUnavailable:
+                self.setup_status.set(self.tr("vJoy ist noch nicht verfügbar. Prüfe die Installation und starte Windows gegebenenfalls neu."))
+            else:
+                self.setup_status.set(self.tr("vJoy ist verfügbar. Richte Gerät 1 in Configure vJoy ein und klicke anschließend auf Verbinden."))
+                self.setup_install_button.state(["disabled"])
+            if value == 3010:
+                self.setup_status.set(self.tr("Die Installation benötigt einen Windows-Neustart."))
+
     def show_help(self):
         dialog = tk.Toplevel(self.root)
         dialog.title(self.tr("Hilfe"))
@@ -1470,6 +1573,8 @@ class Application:
                 actions.pack(anchor="w", pady=(0, 8))
                 ttk.Button(actions, text=self.tr("vJoy auf GitHub"),
                            command=lambda: webbrowser.open(VJOY_DOWNLOAD)).pack(side="left", padx=(0, 6))
+                ttk.Button(actions, text=self.tr("vJoy installieren"),
+                           command=self.show_vjoy_setup).pack(side="left", padx=(0, 6))
                 ttk.Button(actions, text=self.tr("vJoy konfigurieren"),
                            command=partial(self.open_vjoy_config, dialog)).pack(side="left")
             elif heading == "Sender vorbereiten":
@@ -1554,7 +1659,9 @@ class Application:
             kind, value = self.events.get_nowait()
             if self.closing:
                 continue
-            if kind == "tray_open":
+            if kind.startswith("setup_"):
+                self.handle_setup_event(kind, value)
+            elif kind == "tray_open":
                 self.root.deiconify()
                 self.root.lift()
             elif kind == "tray_exit":
@@ -1593,8 +1700,7 @@ class Application:
                 self.set_status(VJOY_TITLE)
                 if self.root.state() == "withdrawn":
                     self.root.deiconify()
-                if messagebox.askyesno(self.tr(VJOY_TITLE), self.tr(VJOY_PROMPT), parent=self.root):
-                    webbrowser.open(VJOY_DOWNLOAD)
+                self.show_vjoy_setup()
             elif kind == "ready":
                 if value == self.connection_target == self.connected_address and self.pending_simulator:
                     entry, self.pending_simulator = self.pending_simulator, None
@@ -1655,6 +1761,7 @@ class Application:
 
     def close(self):
         if not self.closing:
+            self.setup_cancel.set()
             self.closing = True
             self.set_status("Trenne Bluetooth und gebe vJoy frei …")
             self.worker.submit(None)

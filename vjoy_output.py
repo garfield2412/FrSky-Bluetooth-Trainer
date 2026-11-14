@@ -20,6 +20,28 @@ class VJoyUnavailable(RuntimeError):
     pass
 
 
+def load_vjoy_api(dll_path=None):
+    candidates = [Path(dll_path)] if dll_path else [
+        Path(root) / "vJoy" / folder / "vJoyInterface.dll"
+        for root in (os.environ["ProgramFiles"], os.environ.get("ProgramFiles(x86)", os.environ["ProgramFiles"]))
+        for folder in ("x64", "")
+    ]
+    path = next((path for path in candidates if path.is_file()), None)
+    if path is None:
+        raise VJoyUnavailable("vJoyInterface.dll fehlt. Installiere vJoy oder gib --vjoy-dll an.")
+    try:
+        with os.add_dll_directory(str(path.resolve().parent)):
+            api = c.CDLL(str(path.resolve()))
+        enabled = api.vJoyEnabled
+    except (OSError, AttributeError) as error:
+        raise VJoyUnavailable("Die vJoy-Schnittstelle konnte nicht geladen werden.") from error
+    enabled.argtypes = ()
+    enabled.restype = c.c_int
+    if not enabled():
+        raise VJoyUnavailable("Der vJoy-Treiber ist nicht aktiv.")
+    return api
+
+
 class VJoyOutput:
     axis_names = ("X", "Y", "Z", "Rx", "Ry", "Rz", "Slider", "Dial")
 
@@ -28,24 +50,7 @@ class VJoyOutput:
         self.buttons = [(index, channel, high) for index, (channel, high) in enumerate(buttons, 1) if channel]
         self.axes = range(0x30, 0x30 + len(channels))
         self.device = 1
-        candidates = [Path(dll_path)] if dll_path else [
-            Path(root) / "vJoy" / folder / "vJoyInterface.dll"
-            for root in (os.environ["ProgramFiles"], os.environ.get("ProgramFiles(x86)", os.environ["ProgramFiles"]))
-            for folder in ("x64", "")
-        ]
-        path = next((path for path in candidates if path.is_file()), None)
-        if path is None:
-            raise VJoyUnavailable("vJoyInterface.dll fehlt. Installiere vJoy oder gib --vjoy-dll an.")
-        try:
-            with os.add_dll_directory(str(path.resolve().parent)):
-                self.api = c.CDLL(str(path.resolve()))
-            enabled = self.api.vJoyEnabled
-        except (OSError, AttributeError) as error:
-            raise VJoyUnavailable("Die vJoy-Schnittstelle konnte nicht geladen werden.") from error
-        enabled.argtypes = ()
-        enabled.restype = c.c_int
-        if not enabled():
-            raise VJoyUnavailable("Der vJoy-Treiber ist nicht aktiv.")
+        self.api = load_vjoy_api(dll_path)
         for name, args, result in (
             ("AcquireVJD", [c.c_uint], c.c_int),
             ("RelinquishVJD", [c.c_uint], None),

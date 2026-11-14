@@ -24,6 +24,8 @@ Install [vJoy](https://github.com/BrunnerInnovation/vJoy/releases/tag/v2.2.2.0) 
 
 The EXE saves settings in `%LOCALAPPDATA%/FrSky Bluetooth Trainer/config.xml`. On first use it imports an existing `config.xml` beside the EXE. Place your existing configuration beside the EXE before the first start to migrate it.
 
+If vJoy is missing, the app offers **Install vJoy**, **Open download page** and **Later**. Install vJoy downloads the pinned BRUNNER v2.2.2.0 installer (5.3 MB), verifies its SHA-256 checksum and requests Windows administrator permission. After setup, the app checks the driver again. Configure device 1 before connecting. You can reopen setup from Help.
+
 ## Install from source
 
 You need Windows 10 or 11 on an x64 PC with Bluetooth LE, a FrSky radio with Bluetooth trainer mode, and vJoy.
