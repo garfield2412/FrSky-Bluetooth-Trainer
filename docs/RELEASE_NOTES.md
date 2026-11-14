@@ -1,11 +1,8 @@
-Portable Windows x64 preview v0.1.3.
+Portable Windows x64 preview v0.1.4.
 
 Changes
-- Added guided vJoy setup with Install vJoy, Open download page and Later actions.
-- The pinned vJoy 2.2.2.0 download is checked against its size and SHA-256 before requesting administrator permission.
-- Added download progress and driver availability checks after setup.
-- Fixed the disabled install button after an unsuccessful automatic connection attempt.
-- Setup and help are available in German, English and French.
+- Moved the channel selectors and live meters closer to the axis labels in the channel mapping dialog.
+- Kept each live meter aligned beside its channel selector across all three interface languages.
 
 Download the Windows-x64 ZIP, extract it, and run FrSky Bluetooth Trainer.exe. Python and its dependencies are included.
 

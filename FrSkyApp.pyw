@@ -1011,8 +1011,10 @@ class Application:
         ttk.Label(panel, text=profile["name"], font=("Segoe UI", 12, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(0, 12)
         )
-        ttk.Label(panel, text=self.tr("vJoy-Achse")).grid(row=1, column=0, sticky="w")
-        ttk.Label(panel, text=self.tr("Senderkanal")).grid(row=1, column=1, sticky="w", padx=(30, 0))
+        axis_panel = ttk.Frame(panel)
+        axis_panel.grid(row=1, column=0, columnspan=3, sticky="w")
+        ttk.Label(axis_panel, text=self.tr("vJoy-Achse")).grid(row=0, column=0, sticky="w")
+        ttk.Label(axis_panel, text=self.tr("Senderkanal")).grid(row=0, column=1, sticky="w", padx=(20, 0))
 
         choices = [f"CH{channel}" for channel in range(1, 17)]
         axis_labels = tuple(f"{self.tr(AXIS_DESCRIPTIONS[axis])} ({axis})"
@@ -1020,16 +1022,18 @@ class Application:
         selectors = []
         axis_meters = []
         panel_background = ttk.Style(panel).lookup("TFrame", "background")
-        for row, (axis, channel) in enumerate(zip(axis_labels, profile["channels"]), 2):
-            ttk.Label(panel, text=axis).grid(row=row, column=0, sticky="w", pady=3)
-            selector = ttk.Combobox(panel, values=choices, state="readonly", width=13)
+        for row, (axis, channel) in enumerate(zip(axis_labels, profile["channels"]), 1):
+            ttk.Label(axis_panel, text=axis).grid(row=row, column=0, sticky="w", pady=3)
+            channel_row = ttk.Frame(axis_panel)
+            channel_row.grid(row=row, column=1, sticky="w", padx=(20, 0), pady=3)
+            selector = ttk.Combobox(channel_row, values=choices, state="readonly", width=13)
             selector.current(channel - 1)
             selector.bind("<FocusIn>", lambda event: event.widget.selection_clear())
             selector.bind("<<ComboboxSelected>>", lambda event: event.widget.selection_clear())
-            selector.grid(row=row, column=1, sticky="w", padx=(30, 0), pady=3)
+            selector.pack(side="left")
             selectors.append(selector)
-            meter = tk.Canvas(panel, width=88, height=22, background=panel_background, highlightthickness=0)
-            meter.grid(row=row, column=2, padx=(8, 0), sticky="e")
+            meter = tk.Canvas(channel_row, width=88, height=22, background=panel_background, highlightthickness=0)
+            meter.pack(side="left", padx=(8, 0))
             axis_meters.append(meter)
 
         guide = ttk.Frame(panel)
