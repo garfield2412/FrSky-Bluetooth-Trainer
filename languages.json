@@ -4,7 +4,7 @@
     "windows_primary": 7,
     "messages": {},
     "help": [
-      "Mit dieser App steuerst du deinen Flugsimulator kabellos mit deiner FrSky-Funke. vJoy stellt dafür in Windows einen virtuellen Joystick bereit.",
+      "Mit dieser App steuerst du deinen Flugsimulator kabellos mit deiner FrSky-Funke. vJoy stellt dafür in Windows einen virtuellen Joystick bereit. Die EXE-Version enthält Python. Installiere vJoy separat. Einstellungen der EXE liegen unter %LOCALAPPDATA%/FrSky Bluetooth Trainer/config.xml.",
       "Öffne „vJoy auf GitHub“. Lade unter „Assets“ den Windows-Installer herunter und führe ihn aus. Klicke danach auf „vJoy konfigurieren“, wähle Gerät 1 und aktiviere X, Y, Z, Rx, Ry, Rz, Slider und Dial. Wenn du vJoy-Tasten zuordnen willst, aktiviere auch die benötigten Tasten. In „Kanäle zuordnen“ kannst du Schalter für niedrige, mittlere oder hohe Werte belegen und Zuordnungen kopieren oder als XML austauschen. Klicke auf „Apply“. Klicke im Hauptfenster oder unter „Kanäle zuordnen“ auf „Windows-Gamecontroller“. Wähle dort „vJoy Device“ und öffne „Eigenschaften“, um Achsen und Tasten zu testen.",
       "1. Öffne auf der Funke Modell → Trainer und tippe auf +.\n2. Wähle Bluetooth und aktiviere die Verbindung.\n3. Wähle als Trainer-Modus Slave (Schüler) und als Kanalbereich CH1–CH8 oder CH1–CH16, falls verfügbar.",
       "Schalte Bluetooth in Windows ein. Klicke in der App auf „Sender suchen“, wähle deine Funke und klicke auf „Verbinden“. Sobald „Bereit“ erscheint, kannst du loslegen. Trenne die Verbindung, bevor du nach weiteren Sendern suchst.",
@@ -170,7 +170,7 @@
       "Simulator über ⋯ hinzufügen": "Add a simulator using ⋯"
     },
     "help": [
-      "This app lets you fly your simulator wirelessly with your FrSky radio. vJoy provides a virtual joystick in Windows for the simulator to use.",
+      "This app lets you fly your simulator wirelessly with your FrSky radio. vJoy provides a virtual joystick in Windows for the simulator to use. The EXE includes Python. Install vJoy separately. EXE settings are stored in %LOCALAPPDATA%/FrSky Bluetooth Trainer/config.xml.",
       "Click “vJoy on GitHub”. Under “Assets”, download and run the Windows installer. Click “Configure vJoy”, select device 1, and enable X, Y, Z, Rx, Ry, Rz, Slider and Dial. If you plan to map vJoy buttons, enable the buttons you need. In “Map channels” you can assign buttons to low, middle or high positions, copy mappings or exchange them as XML. Click “Apply”. Click “Windows game controllers” in the main window or in the channel mapping dialog. Select “vJoy Device” and open “Properties” to test axes and buttons.",
       "1. On your radio, open Model → Trainer and tap +.\n2. Select Bluetooth and enable the link.\n3. Set Trainer mode to Slave (student) and Channel range to CH1–CH8 or CH1–CH16, if available.",
       "Turn on Bluetooth in Windows. In the app, click “Find transmitters”, select your radio and click “Connect”. Wait for “Ready”. Disconnect before searching for another transmitter.",
@@ -336,7 +336,7 @@
       "Simulator über ⋯ hinzufügen": "Ajoutez un simulateur via ⋯"
     },
     "help": [
-      "Cette application permet de piloter votre simulateur de vol sans fil avec votre radio FrSky. vJoy fournit un joystick virtuel pour Windows.",
+      "Cette application permet de piloter votre simulateur de vol sans fil avec votre radio FrSky. vJoy fournit un joystick virtuel pour Windows. La version EXE inclut Python. Installez vJoy séparément. Les paramètres de la version EXE sont enregistrés dans %LOCALAPPDATA%/FrSky Bluetooth Trainer/config.xml.",
       "Cliquez sur « vJoy sur GitHub ». Sous « Assets », téléchargez puis lancez l’installeur Windows. Cliquez sur « Configurer vJoy », choisissez le périphérique 1 et activez X, Y, Z, Rx, Ry, Rz, Slider et Dial. Activez aussi les boutons dont vous avez besoin, puis cliquez sur « Apply ». Dans « Affecter les canaux », vous pouvez associer les positions basse, centrale et haute d’un interrupteur à des boutons, copier les affectations ou les échanger en XML. Pour tester vos axes et vos boutons, cliquez sur « Contrôleurs de jeu Windows », sélectionnez « vJoy Device », puis ouvrez « Propriétés ».",
       "1. Sur la radio, ouvrez Modèle → Trainer et appuyez sur +.\n2. Sélectionnez Bluetooth et activez la liaison.\n3. Choisissez le mode Slave (élève) et la plage CH1–CH8 ou CH1–CH16 si elle est disponible.",
       "Activez le Bluetooth dans Windows. Dans l’application, cliquez sur « Rechercher », sélectionnez votre radio puis cliquez sur « Connecter ». Attendez que « Prêt » s’affiche. Déconnectez la radio avant d’en rechercher une autre.",

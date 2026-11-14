@@ -18,7 +18,10 @@ from tkinter import filedialog, font, messagebox, ttk
 from test_frsky_ble import CHARACTERISTIC, SERVICE, BleakClient, BleakError, BleakScanner, TrainerDecoder
 from vjoy_output import BUTTON_HIGH, BUTTON_LOW, BUTTON_MODES, VJoyOutput, VJoyUnavailable, button_pressed
 
-SETTINGS = Path(__file__).with_name("config.xml")
+FROZEN = getattr(sys, "frozen", False)
+APP_DIRECTORY = Path(sys.executable).parent if FROZEN else Path(__file__).parent
+SETTINGS = (Path(os.environ["LOCALAPPDATA"]) / "FrSky Bluetooth Trainer" / "config.xml"
+            if FROZEN else APP_DIRECTORY / "config.xml")
 LEGACY_SETTINGS = SETTINGS.with_name("transmitter-list.json")
 DEFAULT = list(range(1, 9))
 FRSKY_BLACK = "#222222"
@@ -177,6 +180,7 @@ def save_settings(path, settings):
     simulators = ET.SubElement(root, "simulators")
     for entry in settings.get("simulators", []):
         ET.SubElement(simulators, "simulator", {"name": entry["name"], "path": entry["path"]})
+    path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_suffix(".tmp")
     ET.indent(root)
     ET.ElementTree(root).write(staged, encoding="utf-8", xml_declaration=True)
@@ -426,6 +430,14 @@ class Application:
         self.tray_state = None
         self.settings = {"last": "", "senders": {}}
         try:
+            if FROZEN and not SETTINGS.exists():
+                previous = APP_DIRECTORY / "config.xml"
+                if previous.is_file():
+                    save_settings(SETTINGS, load_settings(previous))
+                else:
+                    legacy = APP_DIRECTORY / "transmitter-list.json"
+                    if legacy.is_file():
+                        save_settings(SETTINGS, json.loads(legacy.read_text(encoding="utf-8")))
             if SETTINGS.exists():
                 self.settings.update(load_settings(SETTINGS))
             elif LEGACY_SETTINGS.exists():
@@ -1491,7 +1503,8 @@ class Application:
         return lines
 
     def copy_diagnostics(self, dialog):
-        build = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
+        with open(sys.executable if FROZEN else __file__, "rb") as source:
+            build = hashlib.file_digest(source, "sha256").hexdigest()[:12]
         phase = ("Bereit" if self.status_message == READY_STATUS else
                  "Verbindung wird aufgebaut" if self.progress_job is not None else "Getrennt")
         error = self.tr("Kein Fehler erfasst")
@@ -1685,6 +1698,15 @@ def start_app():
 
 
 if __name__ == "__main__":
+    if "--smoke-test" in sys.argv:
+        root = tk.Tk()
+        root.withdraw()
+        for filename in ("frsky-logo.png", "ethos-logo.png"):
+            with Image.open(Path(__file__).with_name(filename)) as image:
+                ImageTk.PhotoImage(image, master=root)
+        assert {"de", "en", "fr"} <= LANGUAGE_CATALOG.keys()
+        root.destroy()
+        sys.exit(0)
     if not run_once(start_app):
         root = tk.Tk()
         root.withdraw()

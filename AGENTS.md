@@ -27,3 +27,9 @@
 ## Verification
 
 Run the checks in the technical documentation for the code paths you changed. Use simulated packets and mocked driver calls for repeatable tests. State separately which checks used the physical radio, vJoy or the simulator. For timing claims, document the measured endpoints and distinguish software benchmarks from end-to-end measurements.
+
+## Release maintenance
+
+- Build Windows x64 releases with scripts/build_release.py and requirements-build.txt. Keep logos and languages.json bundled.
+- Frozen configuration belongs in LocalAppData. Preserve first-run migration and frozen autostart behavior.
+- Version tags create draft prereleases. Record hardware verification and clean-Windows testing before publishing a draft.

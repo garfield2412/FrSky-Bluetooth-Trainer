@@ -2,6 +2,14 @@
 
 Windows app for flight simulators such as HELI-X. It receives 8 or 16 FrSky ETHOS trainer channels over Bluetooth LE and maps them to up to eight vJoy axes and eight configurable buttons. Tested with an X20 Pro AW running ETHOS 26.1. Independent community project.
 
+## Download and releases
+
+Get the portable Windows x64 application from [GitHub Releases](https://github.com/garfield2412/FrSky-Bluetooth-Trainer/releases). Preview builds are marked as prereleases. Download the Windows-x64 ZIP, extract it and run **FrSky Bluetooth Trainer.exe**. Python is included in the EXE.
+
+Install [vJoy](https://github.com/BrunnerInnovation/vJoy/releases/tag/v2.2.2.0) separately and configure device 1 as described below. The preview is unsigned, so Windows SmartScreen may display a prompt.
+
+The EXE saves settings in `%LOCALAPPDATA%/FrSky Bluetooth Trainer/config.xml`. On first use it imports an existing `config.xml` beside the EXE. Place your existing configuration beside the EXE before the first start to migrate it.
+
 ## Install from source
 
 You need Windows 10 or 11 on an x64 PC with Bluetooth LE, a FrSky radio with Bluetooth trainer mode, and vJoy.
