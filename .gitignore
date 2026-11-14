@@ -1,0 +1,13 @@
+/config.xml
+/config.tmp
+/transmitter-list.json*
+/senders.json*
+/frsky-logo.png
+/ble-libs/
+/tray-libs/
+__pycache__/
+*.py[cod]
+/.venv/
+/build/
+/dist/
+*.spec
