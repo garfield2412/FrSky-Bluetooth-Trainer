@@ -60,12 +60,6 @@ Disconnect before searching for another transmitter. Simulator launch from the w
 
 For implementation and testing details, see the [technical documentation](docs/TECHNICAL.md).
 
-## Latency
-
-The Bluetooth path includes transmission from the radio, Windows BLE notification delivery, the bridge, vJoy, and the simulator's input and rendering loop. A wired USB joystick uses the radio's USB HID reporting path. The total latency and the difference between these paths depend on the radio, PC and simulator. Connection setup and reconnect times are separate from the delay of an input during normal operation.
-
-The bridge now sends changed channel values to vJoy as soon as it decodes a valid BLE notification. The live display is limited to about 20 updates per second. The previous implementation checked for changes every 50 ms and forwarded only the latest values at each check.
-
 ## Acknowledgments
 
 [BTWifiSerial](https://github.com/Amigache/BTWifiSerial) served as a reference for the FrSky BLE trainer frame format. The app uses [Bleak](https://github.com/hbldh/bleak), [vJoy](https://github.com/BrunnerInnovation/vJoy), [Pillow](https://github.com/python-pillow/Pillow) and [pystray](https://github.com/moses-palmer/pystray).
