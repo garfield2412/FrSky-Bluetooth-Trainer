@@ -11,7 +11,9 @@ import tkinter as tk
 import webbrowser
 import winreg
 import xml.etree.ElementTree as ET
+from collections import deque
 from functools import partial
+from statistics import median
 from pathlib import Path
 from tkinter import filedialog, font, messagebox, ttk
 
@@ -258,6 +260,8 @@ class BluetoothWorker:
 
         failures = 0
         service_retry = False
+        ready_sessions = 0
+        resets = 0
         device = None
         try:
             while True:
@@ -297,6 +301,10 @@ class BluetoothWorker:
                         next_quality_update = 0.0
                         last_packet = self.loop.time()
                         self.events.put(("quality", None))
+                        self.events.put(("write_timing", None))
+                        write_samples = deque(maxlen=256)
+                        frame_intervals = deque(maxlen=256)
+                        session_ready = False
                         self.events.put(("neutralized", False))
                         display_timer = None
                         write_error = None
@@ -310,10 +318,17 @@ class BluetoothWorker:
                                 self.events.put(("values", latest))
                                 self.events.put(("button_states", button_states))
                                 self.events.put(("vjoy_output", positions))
+                                samples = sorted(write_samples)
+                                if samples:
+                                    count = len(samples)
+                                    p95_index = (95 * count + 99) // 100 - 1
+                                    self.events.put(("write_timing", (median(samples), samples[p95_index], count)))
 
                         def on_packet(_, data):
+                            callback_started = time.perf_counter_ns()
                             nonlocal latest, last_packet, display_timer, write_error, failures, phase, positions, button_states, neutralized
                             nonlocal packet_count, first_packet, previous_packet, latest_interval, longest_interval, next_quality_update
+                            nonlocal session_ready, ready_sessions
                             if disconnected.is_set():
                                 return
                             for values in decoder.feed(data):
@@ -324,11 +339,15 @@ class BluetoothWorker:
                                 else:
                                     latest_interval = last_packet - previous_packet
                                     longest_interval = max(longest_interval, latest_interval)
+                                    frame_intervals.append(latest_interval)
                                 previous_packet = last_packet
                                 if last_packet >= next_quality_update or neutralized or packet_count == 2:
                                     mean = (last_packet - first_packet) / max(1, packet_count - 1)
+                                    intervals = sorted(frame_intervals)
+                                    rank = (95 * len(intervals) + 99) // 100
+                                    p95 = intervals[rank - 1] if intervals else 0.0
                                     self.events.put(("quality", (packet_count, latest_interval, mean, longest_interval,
-                                                                 time.monotonic())))
+                                                                 time.monotonic(), p95)))
                                     next_quality_update = last_packet + 0.25
                                 if values == latest:
                                     continue
@@ -336,12 +355,17 @@ class BluetoothWorker:
                                     if highest_channel > len(values):
                                         raise RuntimeError("Die Kanalzuordnung benötigt einen Sender mit 16 Trainerkanälen.")
                                     positions, button_states = output.write(values)
+                                    write_samples.append(time.perf_counter_ns() - callback_started)
                                 except (OSError, RuntimeError) as error:
                                     write_error = error
                                     self.events.put(("vjoy_error", str(error)))
                                     disconnected.set()
                                     return
                                 if latest is None:
+                                    if not session_ready:
+                                        session_ready = True
+                                        ready_sessions += 1
+                                        self.events.put(("interruptions", (resets, ready_sessions - 1)))
                                     self.events.put(("diagnostic", message("Erste Steuerdaten nach {seconds:.1f} s an vJoy übergeben.", seconds=self.loop.time() - started)))
                                     self.events.put(("status", READY_STATUS))
                                     neutralized = False
@@ -368,6 +392,8 @@ class BluetoothWorker:
                                         except (OSError, RuntimeError) as error:
                                             self.events.put(("vjoy_error", str(error)))
                                             raise RuntimeError("vJoy konnte nicht zurückgesetzt werden") from error
+                                        resets += 1
+                                        self.events.put(("interruptions", (resets, ready_sessions - 1)))
                                         self.events.put(("neutralized", True))
                                         latest = None
                                         neutralized = True
@@ -573,6 +599,8 @@ class Application:
 
         self.diagnostics = []
         self.quality = None
+        self.write_timing = None
+        self.interruptions = (0, 0)
         self.neutralized = False
         self.last_failure = None
         self.output_values = []
@@ -965,6 +993,8 @@ class Application:
         self.render_channels(None)
         self.diagnostics.clear()
         self.quality = None
+        self.write_timing = None
+        self.interruptions = (0, 0)
         self.neutralized = False
         self.last_failure = None
         self.output_error = None
@@ -1599,14 +1629,20 @@ class Application:
         if self.quality is None:
             lines.append(self.tr("Warte auf mindestens zwei gültige Trainerframes."))
         else:
-            count, last, mean, longest, received_at = self.quality
+            count, last, mean, longest, received_at, p95 = self.quality
             lines.append(self.tr(message("Trainerframes seit BLE-Verbindung: {count}", count=count)))
             lines.append(self.tr(message("Letzter gültiger Frame vor {seconds:.2f} s",
                                          seconds=max(0, time.monotonic() - received_at))))
             if count > 1:
                 lines.append(self.tr(message(
-                    "Frameabstand · zuletzt {last:.1f} ms · Mittel {mean:.1f} ms · längste Pause {longest:.1f} ms",
-                    last=last * 1000, mean=mean * 1000, longest=longest * 1000)))
+                    "Frameabstand · zuletzt {last:.1f} ms · Mittel {mean:.1f} ms · P95 {p95:.1f} ms · längste Pause {longest:.1f} ms",
+                    last=last * 1000, mean=mean * 1000, p95=p95 * 1000, longest=longest * 1000)))
+        resets, reconnects = self.interruptions
+        lines.append(self.tr(message("Seit Verbinden · vJoy-Neutralisierungen {resets} · Wiederverbindungen {reconnects}", resets=resets, reconnects=reconnects)))
+        if self.write_timing is not None:
+            middle, p95, count = self.write_timing
+            lines.append(self.tr(message("BLE-Callback → vJoy · Median {median:.3f} ms · P95 {p95:.3f} ms · {count} Messwerte",
+                                         median=middle / 1_000_000, p95=p95 / 1_000_000, count=count)))
         if self.neutralized:
             lines.append(self.tr("vJoy neutralisiert"))
         return lines
@@ -1694,6 +1730,7 @@ class Application:
                     button.state(["!disabled"])
                 self.update_connect_button()
                 self.quality = None
+                self.write_timing = None
                 self.neutralized = False
                 self.output_error = None
                 self.render_channels(None)
@@ -1717,6 +1754,10 @@ class Application:
                 self.neutralized = value
             elif kind == "failure":
                 self.last_failure = value
+            elif kind == "interruptions":
+                self.interruptions = value
+            elif kind == "write_timing":
+                self.write_timing = value
             elif kind == "quality":
                 self.quality = value
             elif kind == "vjoy_output":
