@@ -62,6 +62,12 @@ Disconnect before searching for another transmitter. Simulator launch from the w
 
 For implementation and testing details, see the [technical documentation](docs/TECHNICAL.md).
 
+## License
+
+The original FrSky Bluetooth Trainer source code and project documentation are licensed under the [MIT License](LICENSE). Third-party dependencies are subject to their respective licenses.
+
+The FrSky and ETHOS logos (`frsky-logo.png` and `ethos-logo.png`) and the associated branding are outside the scope of the MIT License. Refer to the respective rights holders for permission to reuse them.
+
 ## Acknowledgments
 
 [BTWifiSerial](https://github.com/Amigache/BTWifiSerial) served as a reference for the FrSky BLE trainer frame format. The app uses [Bleak](https://github.com/hbldh/bleak), [vJoy](https://github.com/BrunnerInnovation/vJoy), [Pillow](https://github.com/python-pillow/Pillow) and [pystray](https://github.com/moses-palmer/pystray).
